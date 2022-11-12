@@ -109,14 +109,16 @@ first_node = PythonOperator(
 def _scrap_disstrack_dbpedia(output_folder: str, endpoint: str, url: str) -> None:
     
     # DBPedia query to get infos of all the disstracks present on DBPedia
-    sparql_query = (
-        "SELECT DISTINCT ?diss,?genre WHERE {"
-            "?diss rdf:type dbo:Song;"
-                "dct:subject dbc:Diss_tracks;"
-                "dbp:genre ?genre"
-        "}"
+    sparql_query =(
+        "SELECT DISTINCT ?diss,?name,?genre,?recorded,?released,?recordLabel WHERE"
+            "{?diss rdf:type dbo:Song;"
+            "dbp:name ?name;"
+            "dct:subject dbc:Diss_tracks;" 
+            "dbp:genre ?genre;"
+            "dbp:recorded ?recorded;" 
+            "dbp:released ?released;" 
+            "dbo:recordLabel ?recordLabel}"
     )
-    #TODO: Retrieve more metadata than just the genre
 
     # Fetched url to get our results from dbpedia in a json format
     api_request = f"{url}{endpoint}?query={urllib.parse.quote_plus(sparql_query)}&format=json"
@@ -144,12 +146,15 @@ def _scrap_disstrack_wikidata_metadata_subject(diss_id: str, endpoint: str, url:
 
     # Wikidata query to get metadata from disstracks
     sparql_query = '''
-        SELECT ?main_subject_id ?main_subject_label
+        SELECT DISTINCT ?main_subject_id ?main_subject_label ?author_id ?author_label
         WHERE 
         {
             wd:%s wdt:P921 ?main_subject_id.
             ?main_subject_id rdfs:label ?main_subject_label.
+            wd:%s wdt:P50 ?author_id.
+            ?author_id rdfs:label ?author_label.
             filter(lang(?main_subject_label) = 'en')
+            filter(lang(?author_label) = 'en')
         }
     ''' % diss_id
     r = requests.get(f"{url}{endpoint}", params = {'format': 'json', 'query': sparql_query})
@@ -158,6 +163,7 @@ def _scrap_disstrack_wikidata_metadata_subject(diss_id: str, endpoint: str, url:
         sleep(1)
         r = requests.get(f"{url}{endpoint}", params = {'format': 'json', 'query': sparql_query})
     return r.json()
+
 
 
 def _scrap_all_disstracks_wikidata_metadata(output_folder: str, endpoint: str, url: str):
