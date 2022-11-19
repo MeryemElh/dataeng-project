@@ -236,7 +236,7 @@ def _mongodb_saver(
         col.insert_one(file_data)
 
 
-fourth_node = PythonOperator(
+fourth_node_a = PythonOperator(
     task_id="mongodb_saver_wikidata",
     dag=data_collection_dag,
     trigger_rule="all_success",
@@ -273,5 +273,5 @@ fifth_node = EmptyOperator(
 )
 
 
-first_node >> third_node >> fourth_node >> fifth_node
+first_node >> third_node >> fourth_node_a >> fifth_node
 second_node >> fourth_node_b >> fifth_node
