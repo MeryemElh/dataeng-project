@@ -25,7 +25,7 @@ data_collection_dag = DAG(
     dag_id="data_collection_dag",
     default_args=default_args_dict,
     catchup=False,
-    template_searchpath=["/usr/local/airflow/data/"],
+    template_searchpath=["/opt/airflow/data/"],
 )
 
 
@@ -103,7 +103,7 @@ first_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_scrap_disstrack_wikipage,
     op_kwargs={
-        "output_folder": "/usr/local/airflow/data",
+        "output_folder": "/opt/airflow/data",
         "endpoint": "/wiki/List_of_diss_tracks",
         "url": "https://en.wikipedia.org",
     },
@@ -141,7 +141,7 @@ second_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_scrap_disstrack_dbpedia,
     op_kwargs={
-        "output_folder": "/usr/local/airflow/data",
+        "output_folder": "/opt/airflow/data",
         "endpoint": "/sparql",
         "url": "http://dbpedia.org",
     },
@@ -153,19 +153,15 @@ def _scrap_disstrack_wikidata_metadata_subject(diss_id: str, endpoint: str, url:
 
     # Wikidata query to get metadata from disstracks
     sparql_query = (
-        """
-        SELECT DISTINCT ?main_subject_id ?main_subject_label ?author_id ?author_label
-        WHERE 
-        {
-            wd:%s wdt:P921 ?main_subject_id.
-            ?main_subject_id rdfs:label ?main_subject_label.
-            wd:%s wdt:P50 ?author_id.
-            ?author_id rdfs:label ?author_label.
-            filter(lang(?main_subject_label) = 'en')
-            filter(lang(?author_label) = 'en')
-        }
-    """
-        % diss_id
+        "SELECT DISTINCT ?main_subject_id ?main_subject_label ?author_id ?author_label "
+        "WHERE { "
+        f"wd:{diss_id} wdt:P921 ?main_subject_id. "
+        "?main_subject_id rdfs:label ?main_subject_label. "
+        f"wd:{diss_id} wdt:P50 ?author_id. "
+        "?author_id rdfs:label ?author_label. "
+        "filter(lang(?main_subject_label) = 'en') "
+        "filter(lang(?author_label) = 'en') "
+        "}"
     )
     r = requests.get(
         f"{url}{endpoint}", params={"format": "json", "query": sparql_query}
@@ -215,7 +211,7 @@ third_node = PythonOperator(
     trigger_rule="all_success",
     python_callable=_scrap_all_disstracks_wikidata_metadata,
     op_kwargs={
-        "output_folder": "/usr/local/airflow/data",
+        "output_folder": "/opt/airflow/data",
         "endpoint": "/sparql",
         "url": "https://query.wikidata.org",
     },
@@ -223,22 +219,23 @@ third_node = PythonOperator(
 )
 
 
-def _redis_saver(output_folder: str, host: str, port: int, db: int):
-    r = redis.Redis(host, port, db)
-    r.set("language", "Python")
-
-    # TODO: Save here in redis data of f"{output_folder}/node2_wikipedia_disstrack_list_with_additional_metadata.json" and f'{output_folder}/node2_dbpedia_disstrack_list.json
+def _mongodb_saver(output_folder: str, host: str, port: int, db: int):
+    pass
+    # TODO: save to mongodb here
+    # input files:
+    # f"{output_folder}/node2_wikipedia_disstrack_list_with_additional_metadata.json"
+    # f'{output_folder}/node2_dbpedia_disstrack_list.json
 
 
 fourth_node = PythonOperator(
-    task_id="redis_saver",
+    task_id="mongodb_saver",
     dag=data_collection_dag,
     trigger_rule="all_success",
-    python_callable=_redis_saver,
+    python_callable=_mongodb_saver,
     op_kwargs={
-        "output_folder": "/usr/local/airflow/data",
+        "output_folder": "/opt/airflow/data",
         "host": "localhost",
-        "port": 6379,
+        "port": 0,
         "db": 0,
     },
     depends_on_past=False,
