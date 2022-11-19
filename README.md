@@ -1,12 +1,13 @@
 # Data Engineering Student Project
-## Links between famous "diss" tracks and singers
+### Links between famous "diss" tracks and singers
 By Meryem and Emilien
 
 Teacher: Riccardo Tommasini
+
 Course: Foundation of Data Engineering
 [https://riccardotommasini.com/courses/2022-10-03-dataeng-insa-ot/](https://riccardotommasini.com/courses/2022-10-03-dataeng-insa-ot/)
 
-## Project Presentation
+# Project Presentation
 ### Subject
 We wanted to work on data around music, and as we like rap we found interesting to study diss tracks (songs in which rappers generally attack another rapper), as they link together rappers and songs. We thought that with information about the relations between diss tracks and rappers, we could create a visual network of "dissing".
 
@@ -21,11 +22,11 @@ flowchart LR
     s3 -- disses --> r1
 ```
 
-Questions we would like to answer:
+### Questions we would like to answer:
 - Who are those who get dissed the most ?
 - Who are the rappers that diss the most ?
 
-## Data sources
+# Data sources
 The first intuition was to look inside the lyrics from known diss tracks to find mentions from another artist.
 But we faced multiple challenges with that approach:
 1. The lyrics are not always easy to find, as they are almost never stored with song data.
