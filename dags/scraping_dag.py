@@ -6,11 +6,13 @@ from time import sleep
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
-import redis
+from pymongo import MongoClient
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.empty import EmptyOperator
+
+# from airflow.operators.bash import BashOperator
 
 
 default_args_dict = {
@@ -219,26 +221,50 @@ third_node = PythonOperator(
 )
 
 
-def _mongodb_saver(output_folder: str, host: str, port: int, db: int):
-    pass
-    # TODO: save to mongodb here
-    # input files:
-    # f"{output_folder}/node2_wikipedia_disstrack_list_with_additional_metadata.json"
-    # f'{output_folder}/node2_dbpedia_disstrack_list.json
+def _mongodb_saver(
+    output_folder: str, filename: str, host: str, port: str, database: str
+):
+    client = MongoClient(f"mongodb://{host}:{port}/")
+    db = client[database]
+    col = db["collection"]
+    with open(output_folder + filename) as file:
+        file_data = json.load(file)
+
+    if isinstance(file_data, list):
+        col.insert_many(file_data)
+    else:
+        col.insert_one(file_data)
 
 
 fourth_node = PythonOperator(
-    task_id="mongodb_saver",
+    task_id="mongodb_saver_wikidata",
     dag=data_collection_dag,
     trigger_rule="all_success",
     python_callable=_mongodb_saver,
     op_kwargs={
-        "output_folder": "/opt/airflow/data",
-        "host": "localhost",
-        "port": 0,
-        "db": 0,
+        "output_folder": "/opt/airflow/data/",
+        "filename": "node3_wikidata_disstrack_list_with_additional_metadata.json",
+        "host": "mongo",
+        "port": "27017",
+        "database": "data",
+        "collection": "wikidata",
     },
-    depends_on_past=False,
+)
+
+
+fourth_node_b = PythonOperator(
+    task_id="mongodb_saver_dbpedia",
+    dag=data_collection_dag,
+    trigger_rule="all_success",
+    python_callable=_mongodb_saver,
+    op_kwargs={
+        "output_folder": "/opt/airflow/data/",
+        "filename": "node2_dbpedia_disstrack_list.json",
+        "host": "mongo",
+        "port": "27017",
+        "database": "data",
+        "collection": "dbpedia",
+    },
 )
 
 
@@ -247,5 +273,5 @@ fifth_node = EmptyOperator(
 )
 
 
-first_node >> third_node
-[second_node, third_node] >> fourth_node >> fifth_node
+first_node >> third_node >> fourth_node >> fifth_node
+second_node >> fourth_node_b >> fifth_node
