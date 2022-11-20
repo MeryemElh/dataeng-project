@@ -7,6 +7,8 @@ import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
 from pymongo import MongoClient
+import redis
+from redis.commands.json.path import Path
 
 from airflow import DAG
 from airflow.operators.python import PythonOperator
@@ -76,7 +78,9 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
     return disstracks
 
 
-def _scrap_disstrack_wikipage(output_folder: str, endpoint: str, url: str) -> None:
+def _scrap_disstrack_wikipage(
+    redis_output_key: str, redis_host: str, redis_port: str, redis_db: str, endpoint: str, url: str) -> None:
+
     page = requests.get(f"{url}{endpoint}")
     soup = BeautifulSoup(page.content, "html.parser")
 
@@ -94,9 +98,9 @@ def _scrap_disstrack_wikipage(output_folder: str, endpoint: str, url: str) -> No
         _scrap_disstrack_list(youtube_list, {"origin": "youtube"}, url)
     )
 
-    # Save the result to a file (temporary that will be deleted if docker stopped)
-    with open(f"{output_folder}/node1_wikipedia_disstrack_list.json", "w+") as f:
-        json.dump(disstracks_infos, f)
+    # Save the result to redis db (to speed up the steps as it uses cache)
+    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    client.json().set(redis_output_key, Path.root_path(), disstracks_infos)
 
 
 first_node = PythonOperator(
@@ -105,7 +109,10 @@ first_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_scrap_disstrack_wikipage,
     op_kwargs={
-        "output_folder": "/opt/airflow/data",
+        "redis_output_key": "wikipedia_results",
+        "redis_host": "rejson",
+        "redis_port": 6379,
+        "redis_db": 0,
         "endpoint": "/wiki/List_of_diss_tracks",
         "url": "https://en.wikipedia.org",
     },
@@ -113,7 +120,8 @@ first_node = PythonOperator(
 )
 
 
-def _scrap_disstrack_dbpedia(output_folder: str, endpoint: str, url: str) -> None:
+def _scrap_disstrack_dbpedia(
+    redis_output_key: str, redis_host: str, redis_port: str, redis_db: str, endpoint: str, url: str) -> None:
 
     # DBPedia query to get infos of all the disstracks present on DBPedia
     sparql_query = (
@@ -132,9 +140,9 @@ def _scrap_disstrack_dbpedia(output_folder: str, endpoint: str, url: str) -> Non
         f"{url}{endpoint}?query={urllib.parse.quote_plus(sparql_query)}&format=json"
     )
 
-    # Save the result to a file (temporary that will be deleted if docker stopped)
-    with open(f"{output_folder}/node2_dbpedia_disstrack_list.json", "w+") as f:
-        f.write(requests.get(api_request).text)
+    # Save the result to redis db (to speed up the steps as it uses cache)
+    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    client.json().set(redis_output_key, Path.root_path(), json.loads(requests.get(api_request).text))
 
 
 second_node = PythonOperator(
@@ -143,7 +151,10 @@ second_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_scrap_disstrack_dbpedia,
     op_kwargs={
-        "output_folder": "/opt/airflow/data",
+        "redis_output_key": "dbpedia_results",
+        "redis_host": "rejson",
+        "redis_port": 6379,
+        "redis_db": 0,
         "endpoint": "/sparql",
         "url": "http://dbpedia.org",
     },
@@ -178,11 +189,14 @@ def _scrap_disstrack_wikidata_metadata_subject(diss_id: str, endpoint: str, url:
 
 
 def _scrap_all_disstracks_wikidata_metadata(
-    output_folder: str, endpoint: str, url: str
+    redis_input_key: str, redis_output_key: str, redis_host: str, redis_port: str, redis_db: str, endpoint: str, url: str
 ):
 
-    with open(f"{output_folder}/node1_wikipedia_disstrack_list.json", "r") as f:
-        disstracks_list = json.load(f)
+    # Gets the precedent wikipedia list saved in redis
+    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    disstracks_list = client.json().get(redis_input_key)
+
+
     cpt = 0
     for diss in disstracks_list:
         cpt += 1
@@ -198,13 +212,10 @@ def _scrap_all_disstracks_wikidata_metadata(
                 diss["wikidata_metadata"] = {
                     "subject": raw_wikidata_metadata_subject["results"]["bindings"]
                 }
-            # TODO: Create other functions to retrieve metadata similarly to the subject in _scrap_disstrack_wikidata_metadata_subject
 
-    with open(
-        f"{output_folder}/node3_wikidata_disstrack_list_with_additional_metadata.json",
-        "w+",
-    ) as f:
-        json.dump(disstracks_list, f)
+    # Save the result to redis db (to speed up the steps as it uses cache)
+    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    client.json().set(redis_output_key, Path.root_path(), disstracks_list)
 
 
 third_node = PythonOperator(
@@ -213,7 +224,11 @@ third_node = PythonOperator(
     trigger_rule="all_success",
     python_callable=_scrap_all_disstracks_wikidata_metadata,
     op_kwargs={
-        "output_folder": "/opt/airflow/data",
+        "redis_input_key": "wikipedia_results",
+        "redis_output_key": "wikidata_results",
+        "redis_host": "rejson",
+        "redis_port": 6379,
+        "redis_db": 0,
         "endpoint": "/sparql",
         "url": "https://query.wikidata.org",
     },
@@ -222,13 +237,16 @@ third_node = PythonOperator(
 
 
 def _mongodb_saver(
-    output_folder: str, filename: str, host: str, port: str, database: str, collection: str
+    redis_input_key: str, redis_host: str, redis_port: str, redis_db: str, mongo_host: str, mongo_port: str, mongo_database: str, mongo_collection: str
 ):
-    client = MongoClient(f"mongodb://{host}:{port}/")
-    db = client[database]
-    col = db[collection]
-    with open(output_folder + filename) as file:
-        file_data = json.load(file)
+
+    # Gets the input data saved in redis to save them in mongo
+    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    file_data = client.json().get(redis_input_key)
+
+    client = MongoClient(f"mongodb://{mongo_host}:{mongo_port}/")
+    db = client[mongo_database]
+    col = db[mongo_collection]
 
     if isinstance(file_data, list):
         col.insert_many(file_data)
@@ -236,42 +254,46 @@ def _mongodb_saver(
         col.insert_one(file_data)
 
 
-fourth_node_a = PythonOperator(
+fourth_node = PythonOperator(
     task_id="mongodb_saver_wikidata",
     dag=data_collection_dag,
     trigger_rule="all_success",
     python_callable=_mongodb_saver,
     op_kwargs={
-        "output_folder": "/opt/airflow/data/",
-        "filename": "node3_wikidata_disstrack_list_with_additional_metadata.json",
-        "host": "mongo",
-        "port": "27017",
-        "database": "data",
-        "collection": "wikidata_disstracks",
+        "redis_input_key": "wikidata_results",
+        "redis_host": "rejson",
+        "redis_port": 6379,
+        "redis_db": 0,
+        "mongo_host": "mongo",
+        "mongo_port": "27017",
+        "mongo_database": "data",
+        "mongo_collection": "wikidata_disstracks",
     },
 )
 
 
-fourth_node_b = PythonOperator(
+fifth_node = PythonOperator(
     task_id="mongodb_saver_dbpedia",
     dag=data_collection_dag,
     trigger_rule="all_success",
     python_callable=_mongodb_saver,
     op_kwargs={
-        "output_folder": "/opt/airflow/data/",
-        "filename": "node2_dbpedia_disstrack_list.json",
-        "host": "mongo",
-        "port": "27017",
-        "database": "data",
-        "collection": "dbpedia_disstracks",
+        "redis_input_key": "dbpedia_results",
+        "redis_host": "rejson",
+        "redis_port": 6379,
+        "redis_db": 0,
+        "mongo_host": "mongo",
+        "mongo_port": "27017",
+        "mongo_database": "data",
+        "mongo_collection": "dbpedia_disstracks",
     },
 )
 
 
-fifth_node = EmptyOperator(
+sixth_node = EmptyOperator(
     task_id="finale", dag=data_collection_dag, trigger_rule="none_failed"
 )
 
 
-first_node >> third_node >> fourth_node_a >> fifth_node
-second_node >> fourth_node_b >> fifth_node
+first_node >> third_node >> fourth_node >> sixth_node
+second_node >> fifth_node >> sixth_node
