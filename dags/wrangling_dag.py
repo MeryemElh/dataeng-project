@@ -20,6 +20,7 @@ wrangling_dag = DAG(
     catchup=False,
 )
 
+
 def _mongodb_reader_test(host: str, port: str, database: str):
     client = MongoClient(f"mongodb://{host}:{port}/")
     db = client[database]
@@ -30,7 +31,7 @@ def _mongodb_reader_test(host: str, port: str, database: str):
         cpt += 1
     if cpt == 0:
         raise Exception("Empty wikidata collection")
-    
+
     col = db["dbpedia_disstracks"]
     cpt = 0
     for post in col.find():
@@ -38,6 +39,7 @@ def _mongodb_reader_test(host: str, port: str, database: str):
         cpt += 1
     if cpt == 0:
         raise Exception("Empty dbpedia collection")
+
 
 fourth_node_a = PythonOperator(
     task_id="mongodb_reader_test",
