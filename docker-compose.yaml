@@ -297,6 +297,12 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME:
       MONGO_INITDB_ROOT_PASSWORD:
+  
+  rejson:
+    image: redislabs/rejson:latest
+    ports:
+      - 6379:6379
+    restart: unless-stopped
 
 
 volumes:
