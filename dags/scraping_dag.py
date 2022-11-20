@@ -222,7 +222,12 @@ third_node = PythonOperator(
 
 
 def _mongodb_saver(
-    output_folder: str, filename: str, host: str, port: str, database: str, collection: str
+    output_folder: str,
+    filename: str,
+    host: str,
+    port: str,
+    database: str,
+    collection: str,
 ):
     client = MongoClient(f"mongodb://{host}:{port}/")
     db = client[database]
