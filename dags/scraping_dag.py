@@ -6,7 +6,6 @@ from time import sleep
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
-from pymongo import MongoClient
 import redis
 from redis.commands.json.path import Path
 
@@ -265,19 +264,40 @@ def _mongodb_saver(
     mongo_database: str,
     mongo_collection: str,
 ):
+    from pymongo import MongoClient, ASCENDING
+    from pymongo.errors import DuplicateKeyError
 
     # Gets the input data saved in redis to save them in mongo
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    file_data = client.json().get(redis_input_key)
+    json_data = client.json().get(redis_input_key)
 
     client = MongoClient(f"mongodb://{mongo_host}:{mongo_port}/")
     db = client[mongo_database]
     col = db[mongo_collection]
 
-    if isinstance(file_data, list):
-        col.insert_many(file_data)
-    else:
-        col.insert_one(file_data)
+    if mongo_collection == "wikidata_disstracks":
+        col.create_index(
+            [
+                ("Date Released", ASCENDING),
+                ("Song Title", ASCENDING),
+                ("Artist(s)", ASCENDING),
+            ],
+            unique=True,
+        )
+        for doc in json_data:
+            try:
+                col.insert_one(doc)
+            except DuplicateKeyError:
+                # If song already exists in db, skip the insertion
+                pass
+    elif mongo_collection == "dbpedia_disstracks":
+        col.create_index("diss", unique=True)
+        for doc in json_data["results"]["bindings"]:
+            try:
+                col.insert_one(doc)
+            except DuplicateKeyError:
+                # If song already exists in db, skip the insertion
+                pass
 
 
 fourth_node = PythonOperator(
