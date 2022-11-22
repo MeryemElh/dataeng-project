@@ -211,6 +211,29 @@ def _scrap_disstrack_wikidata_metadata_subject(diss_id: str, endpoint: str, url:
     return r.json()
 
 
+def _scrap_disstrack_wikidata_metadata_target(target_id: str, endpoint: str, url: str):
+
+    # Wikidata query to get metadata from disstracks
+    sparql_query = (
+        "SELECT DISTINCT ?type_id ?type_label "
+        "WHERE { " 
+            f"wd:{target_id} wdt:P31 ?type_id. " 
+            "?type_id rdfs:label ?type_label. "
+            "filter(lang(?type_label) = 'en') "
+        "}"
+    )
+    r = requests.get(
+        f"{url}{endpoint}", params={"format": "json", "query": sparql_query}
+    )
+    if not r.ok:
+        # Probable too many requests, so timeout and retry
+        sleep(1)
+        r = requests.get(
+            f"{url}{endpoint}", params={"format": "json", "query": sparql_query}
+        )
+    return r.json()
+
+
 def _scrap_all_disstracks_wikidata_metadata(
     redis_input_key: str,
     redis_output_key: str,
@@ -240,6 +263,15 @@ def _scrap_all_disstracks_wikidata_metadata(
                 diss["wikidata_metadata"] = {
                     "subject": raw_wikidata_metadata_subject["results"]["bindings"]
                 }
+        
+        # If the diss has a Wikidata target id, we try to complete its type
+        if diss["Wikidata target id"]:
+            # If found subjects, add them to the metadata
+            raw_wikidata_metadata_target = _scrap_disstrack_wikidata_metadata_target(
+                diss["Wikidata target id"], endpoint, url
+            )
+            if raw_wikidata_metadata_target["results"]["bindings"]:
+                diss["wikidata_metadata"]["target"] = raw_wikidata_metadata_target["results"]["bindings"]
 
     # Save the result to redis db (to speed up the steps as it uses cache)
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
