@@ -144,7 +144,6 @@ def _merging_data(
     dbpedia_df = pd.DataFrame(dbpedia_data)
     wikidata_df["Song Title"] = wikidata_df["Song Title"].str[1:-1]
     merged_df = pd.merge(wikidata_df, dbpedia_df, how="outer", on=["Song Title"])
-    merged_df = pd.merge(wikidata_df, dbpedia_df, how="outer", on=["Song Title"])
 
     # saving result to redis
     redis_client.set("merged_df", context.serialize(merged_df).to_buffer().to_pybytes())
@@ -190,8 +189,6 @@ def _cleansing_data(
     df['Target Type'] = target_type
     df['Song Artist'] = artists
     #storing in redis
-    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    context = pa.default_serialization_context()
     redis_client.set("df", context.serialize(df).to_buffer().to_pybytes())
 
 
