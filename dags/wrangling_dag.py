@@ -20,7 +20,7 @@ wrangling_dag = DAG(
 )
 
 
-def _cleansing_dbpedia_data(
+def _get_dbpedia_data(
     redis_output_key: str,
     redis_host: str,
     redis_port: str,
@@ -32,22 +32,24 @@ def _cleansing_dbpedia_data(
     from pymongo import MongoClient
     import redis
     from redis.commands.json.path import Path
+    import pyarrow as pa
 
-    client = MongoClient(f"mongodb://{host}:{port}/")
-    db = client[database]
+    mongo_client = MongoClient(f"mongodb://{host}:{port}/")
+    db = mongo_client[database]
+    #format data
     dbpedia_data = db["dbpedia_disstracks"]
-    precleaned_db = [{"url":x["diss"]["value"],"name":x["name"]["value"],"genre":x["genre"]["value"],"recorded":x["recorded"]["value"],"released":x["released"]["value"],"recordLabel":x["recordLabel"]["value"]} for x in list(dbpedia_data.find())]
+    precleaned_db = [{"url":x["diss"]["value"],"Song Title":x["name"]["value"],"genre":x["genre"]["value"],"recorded":x["recorded"]["value"],"released":x["released"]["value"],"recordLabel":x["recordLabel"]["value"]} for x in list(dbpedia_data.find())]
+    #storing in redis
+    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    context = pa.default_serialization_context()
+    redis_client.set("dbpedia_df", context.serialize(precleaned_db).to_buffer().to_pybytes())
+    
 
-    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    client.json().set(redis_output_key, Path.root_path(), precleaned_db)
-    p
-
-
-cleansing_dbpedia_node = PythonOperator(
-    task_id="cleansing_dbpedia_data",
+get_dbpedia_node = PythonOperator(
+    task_id="get_dbpedia_data",
     dag=wrangling_dag,
     trigger_rule="none_failed",
-    python_callable=_cleansing_dbpedia_data,
+    python_callable=_get_dbpedia_data,
     op_kwargs={
         "redis_output_key": "dbpedia_results",
         "redis_host": "rejson",
@@ -61,7 +63,7 @@ cleansing_dbpedia_node = PythonOperator(
 )
 
 
-def _cleansing_wikidata_data(
+def _get_wikidata_data(
     redis_output_key: str,
     redis_host: str,
     redis_port: str,
@@ -70,24 +72,28 @@ def _cleansing_wikidata_data(
     port: str,
     database: str,
 ):
-    # from pymongo import MongoClient
-    # import redis
-    # from redis.commands.json.path import Path
+    from pymongo import MongoClient
+    import redis
+    from redis.commands.json.path import Path
+    import pyarrow as pa
 
-    # client = MongoClient(f"mongodb://{host}:{port}/")
-    # db = client[database]
-    # wikidata_data = db["wikidata_disstracks"]
-    # wikidata_df = pd.DataFrame(wikidata_data)
-    # client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    # client.json().set(redis_output_key, Path.root_path(), wikidata_df)
-    pass
+    mongo_client = MongoClient(f"mongodb://{host}:{port}/")
+    db = mongo_client[database]
+    wikidata_data = db["wikidata_disstracks"]
+    wikidata_df = pd.DataFrame(list(wikidata_data.find()))
+    #storing in redis
+    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    context = pa.default_serialization_context()
+    redis_client.set("wikidata_df", context.serialize(wikidata_df).to_buffer().to_pybytes())
 
 
-cleansing_wikidata_node = PythonOperator(
-    task_id="cleansing_wikidata_data",
+
+
+get_wikidata_node = PythonOperator(
+    task_id="get_wikidata_data",
     dag=wrangling_dag,
     trigger_rule="none_failed",
-    python_callable=_cleansing_wikidata_data,
+    python_callable=_get_wikidata_data,
     op_kwargs={
         "redis_output_key": "wikidata_results",
         "redis_host": "rejson",
@@ -103,19 +109,22 @@ cleansing_wikidata_node = PythonOperator(
 
 
 def _merging_data(
-    redis_wikidata_key: str,
-    redis_dbpedia_key: str,
     redis_host: str,
     redis_port: int,
     redis_db: int,
 ):
     import redis
     import pandas as pd
-    from sqlalchemy import create_engine
+    import pyarrow as pa
 
-    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    wikidata_data = client.json().get(redis_wikidata_key)
-    dbpedia_data = client.json().get(redis_dbpedia_key)
+    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    context = pa.default_serialization_context()
+    wikidata_data = context.deserialize(redis_client.get("wikidata_df"))
+    dbpedia_data = context.deserialize(redis_client.get("dbpedia_df"))
+    wikidata_df = pd.DataFrame(wikidata_data )
+    dbpedia_df = pd.DataFrame(dbpedia_data)
+    wikidata_df["Song Title"] = wikidata_df["Song Title"].str[1:-1]
+    pd.merge(wikidata_df, dbpedia_df, how="outer", on=["Song Title"])
 
     # wiki_df = pd.DataFrame(wikidata_data)
     # print("Merging into one DF...")
@@ -188,4 +197,4 @@ saving_node = PythonOperator(
     },
 )
 
-cleansing_wikidata_node >> merging_node >> saving_node
+get_wikidata_node >> get_dbpedia_node >> merging_node >> saving_node
