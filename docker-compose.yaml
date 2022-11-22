@@ -74,6 +74,8 @@ x-airflow-common:
 services:
   postgres:
     image: postgres:13
+    ports:
+      - 5432:5432
     environment:
       POSTGRES_USER: airflow
       POSTGRES_PASSWORD: airflow
@@ -297,13 +299,13 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME:
       MONGO_INITDB_ROOT_PASSWORD:
-  
+
+
   rejson:
     image: redislabs/rejson:latest
     ports:
       - 6379:6379
     restart: unless-stopped
-
 
 volumes:
   postgres-db-volume:
