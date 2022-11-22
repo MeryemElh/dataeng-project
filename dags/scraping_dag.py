@@ -46,7 +46,7 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
 
     # Goes through all the rows except the headers and add the elements in a list
     disstracks = []
-    for row in rows[1:]:
+    for row in rows[150:160]:
         # Gets all the elements of the row
         elements = row.find_all("td")
 
@@ -58,9 +58,11 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
         # Gets the link to the targets and song wikipedia page if exists
         song_target_index = headers.index("Target(s)")
         try:
-            _add_wikidata_id(elements,disstrack_infos, song_target_index, url, "Wikidata target id")
+            _add_wikidata_id(elements[song_target_index],disstrack_infos, url, "Wikidata target id")
         except IndexError:
             print(f"A disstrack doesn't have any target : {disstrack_infos}")
+            disstrack_infos["Wikipedia endpoint"] = ""
+            disstrack_infos["Wikidata target id"] = ""
 
         song_title_index = headers.index("Song Title")
         try:
@@ -78,9 +80,10 @@ def _add_wikidata_id(element:Any,dissTrackInfos:dict, url: str, name:str):
     if not element.a:
         dissTrackInfos["Wikipedia endpoint"] = ""
         dissTrackInfos[name] = ""
+
     else:
         dissTrackInfos["Wikipedia endpoint"] = element.a["href"]
-        # Gets the song Wikidata song id if exists
+        # Gets the song Wikidata id if exists
         page = requests.get(f"{url}{dissTrackInfos['Wikipedia endpoint']}")
         soup = BeautifulSoup(page.content, "html.parser")
         wikidata_tag = soup.find_all("span", string="Wikidata item")
@@ -278,7 +281,8 @@ def _scrap_all_disstracks_wikidata_metadata(
                 diss["Wikidata target id"], endpoint, url
             )
             if raw_wikidata_metadata_target["results"]["bindings"]:
-                diss["wikidata_metadata"]["target"] = raw_wikidata_metadata_target["results"]["bindings"]
+                    diss["wikidata_metadata"] = {
+                    "target": raw_wikidata_metadata_target["results"]["bindings"]}
 
     # Save the result to redis db (to speed up the steps as it uses cache)
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
