@@ -58,7 +58,9 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
         # Gets the link to the targets and song wikipedia page if exists
         song_target_index = headers.index("Target(s)")
         try:
-            _add_wikidata_id(elements[song_target_index],disstrack_infos, url, "Wikidata target id")
+            _add_wikidata_id(
+                elements[song_target_index], disstrack_infos, url, "Wikidata target id"
+            )
         except IndexError:
             print(f"A disstrack doesn't have any target : {disstrack_infos}")
             disstrack_infos["Wikipedia endpoint"] = ""
@@ -66,17 +68,19 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
 
         song_title_index = headers.index("Song Title")
         try:
-            _add_wikidata_id(elements[song_title_index],disstrack_infos, url, "Wikidata song id")
+            _add_wikidata_id(
+                elements[song_title_index], disstrack_infos, url, "Wikidata song id"
+            )
         except IndexError:
             print(f"A disstrack doesn't have any title : {disstrack_infos}")
-        
+
         # Mixing the song infos with the fixed infos and adding it to the list
         disstracks.append(dict(disstrack_infos, **fixed_properties))
 
     return disstracks
 
 
-def _add_wikidata_id(element:Any,dissTrackInfos:dict, url: str, name:str):
+def _add_wikidata_id(element: Any, dissTrackInfos: dict, url: str, name: str):
     if not element.a:
         dissTrackInfos["Wikipedia endpoint"] = ""
         dissTrackInfos[name] = ""
@@ -91,9 +95,7 @@ def _add_wikidata_id(element:Any,dissTrackInfos:dict, url: str, name:str):
             dissTrackInfos[name] = ""
         else:
             # From the full wikidata url, only take the part at the right of the last slash '/'
-            dissTrackInfos[name] = (
-                wikidata_tag[0].parent["href"].rsplit("/", 1)[1]
-            )
+            dissTrackInfos[name] = wikidata_tag[0].parent["href"].rsplit("/", 1)[1]
     return dissTrackInfos
 
 
@@ -195,17 +197,14 @@ second_node = PythonOperator(
 )
 
 
-def _scrap_disstrack_wikidata_metadata_subject(diss_id: str, endpoint: str, url: str):
+def _scrap_disstrack_wikidata_metadata_artists(diss_id: str, endpoint: str, url: str):
 
     # Wikidata query to get metadata from disstracks
     sparql_query = (
-        "SELECT DISTINCT ?main_subject_id ?main_subject_label ?author_id ?author_label "
+        "SELECT DISTINCT ?author_id ?author_label "
         "WHERE { "
-        f"wd:{diss_id} wdt:P921 ?main_subject_id. "
-        "?main_subject_id rdfs:label ?main_subject_label. "
-        f"wd:{diss_id} wdt:P50 ?author_id. "
+        f"wd:{diss_id} wdt:P50|wdt:P175|wdt:P86 ?author_id. "
         "?author_id rdfs:label ?author_label. "
-        "filter(lang(?main_subject_label) = 'en') "
         "filter(lang(?author_label) = 'en') "
         "}"
     )
@@ -213,7 +212,7 @@ def _scrap_disstrack_wikidata_metadata_subject(diss_id: str, endpoint: str, url:
         f"{url}{endpoint}", params={"format": "json", "query": sparql_query}
     )
     if not r.ok:
-        # Probable too many requests, so timeout and retry
+        # Probable too many requests, so sleep and retry
         sleep(1)
         r = requests.get(
             f"{url}{endpoint}", params={"format": "json", "query": sparql_query}
@@ -226,10 +225,10 @@ def _scrap_disstrack_wikidata_metadata_target(target_id: str, endpoint: str, url
     # Wikidata query to get metadata from disstracks
     sparql_query = (
         "SELECT DISTINCT ?type_id ?type_label "
-        "WHERE { " 
-            f"wd:{target_id} wdt:P31 ?type_id. " 
-            "?type_id rdfs:label ?type_label. "
-            "filter(lang(?type_label) = 'en') "
+        "WHERE { "
+        f"wd:{target_id} wdt:P31 ?type_id. "
+        "?type_id rdfs:label ?type_label. "
+        "filter(lang(?type_label) = 'en') "
         "}"
     )
     r = requests.get(
@@ -261,19 +260,19 @@ def _scrap_all_disstracks_wikidata_metadata(
     cpt = 0
     for diss in disstracks_list:
         cpt += 1
-        
+
         # If the diss has a Wikidata song id, we try to complete some metadata, else we add a blank json
         diss["wikidata_metadata"] = {}
         if diss["Wikidata song id"]:
-            # If found subjects, add them to the metadata
-            raw_wikidata_metadata_subject = _scrap_disstrack_wikidata_metadata_subject(
+            # If found artists, add them to the metadata
+            raw_wikidata_metadata_artists = _scrap_disstrack_wikidata_metadata_artists(
                 diss["Wikidata song id"], endpoint, url
             )
-            if raw_wikidata_metadata_subject["results"]["bindings"]:
+            if raw_wikidata_metadata_artists["results"]["bindings"]:
                 diss["wikidata_metadata"] = {
-                    "subject": raw_wikidata_metadata_subject["results"]["bindings"]
+                    "artists": raw_wikidata_metadata_artists["results"]["bindings"]
                 }
-        
+
         # If the diss has a Wikidata target id, we try to complete its type
         if diss["Wikidata target id"]:
             # If found subjects, add them to the metadata
