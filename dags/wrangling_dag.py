@@ -19,13 +19,6 @@ wrangling_dag = DAG(
     catchup=False,
 )
 
-<<<<<<< HEAD
-def _cleansing_dbpedia_data(redis_output_key: str, redis_host: str, redis_port: str, redis_db: str,host: str, port: str, database: str):
-    client = MongoClient(f"mongodb://{host}:{port}/")
-    db = client[database]
-    dbpedia_data = db["dbpedia_disstracks"]
-    dbpedia_df = pd.DataFrame(dbpedia_data)
-=======
 
 def _cleansing_dbpedia_data(
     redis_output_key: str,
@@ -36,28 +29,22 @@ def _cleansing_dbpedia_data(
     port: str,
     database: str,
 ):
-    # from pymongo import MongoClient
-    # import redis
-    # from redis.commands.json.path import Path
->>>>>>> 1897a43a7667864aa5a7bf8c279c6ccb5f628fc5
+    from pymongo import MongoClient
+    import redis
+    from redis.commands.json.path import Path
 
-    # client = MongoClient(f"mongodb://{host}:{port}/")
-    # db = client[database]
-    # dbpedia_data = db["dbpedia_disstracks"]
-    # dbpedia_df = pd.DataFrame(dbpedia_data)
+    client = MongoClient(f"mongodb://{host}:{port}/")
+    db = client[database]
+    dbpedia_data = db["dbpedia_disstracks"]
+    precleaned_db = [{"url":x["diss"]["value"],"name":x["name"]["value"],"genre":x["genre"]["value"],"recorded":x["recorded"]["value"],"released":x["released"]["value"],"recordLabel":x["recordLabel"]["value"]} for x in list(dbpedia_data.find())]
 
-    # client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    # client.json().set(redis_output_key, Path.root_path(), dbpedia_df)
-    pass
+    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    client.json().set(redis_output_key, Path.root_path(), precleaned_db)
+    p
 
-<<<<<<< HEAD
-first_node = PythonOperator(
-    task_id="mongodb_reader_test",
-=======
 
 cleansing_dbpedia_node = PythonOperator(
     task_id="cleansing_dbpedia_data",
->>>>>>> 1897a43a7667864aa5a7bf8c279c6ccb5f628fc5
     dag=wrangling_dag,
     trigger_rule="none_failed",
     python_callable=_cleansing_dbpedia_data,
@@ -73,18 +60,6 @@ cleansing_dbpedia_node = PythonOperator(
     },
 )
 
-<<<<<<< HEAD
-def _cleansing_wikidata_data(redis_output_key: str, redis_host: str, redis_port: str, redis_db: str,host: str, port: str, database: str):
-    client = MongoClient(f"mongodb://{host}:{port}/")
-    db = client[database]
-    wikidata_data = db["wikidata_disstracks"]
-    wikidata_df = pd.DataFrame(wikidata_data)
-    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    client.json().set(redis_output_key, Path.root_path(), wikidata_df)
-
-second_node = PythonOperator(
-    task_id="_cleansing_wikidata_data",
-=======
 
 def _cleansing_wikidata_data(
     redis_output_key: str,
@@ -110,7 +85,6 @@ def _cleansing_wikidata_data(
 
 cleansing_wikidata_node = PythonOperator(
     task_id="cleansing_wikidata_data",
->>>>>>> 1897a43a7667864aa5a7bf8c279c6ccb5f628fc5
     dag=wrangling_dag,
     trigger_rule="none_failed",
     python_callable=_cleansing_wikidata_data,
@@ -127,15 +101,6 @@ cleansing_wikidata_node = PythonOperator(
     },
 )
 
-<<<<<<< HEAD
-def merging_data(redis_input_key_1: str, redis_input_key_2: str, redis_host: str, redis_port: str, redis_db: str):
-    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    dbpedia_data = client.json().get(redis_input_key_1)
-    wikidata_data =client.json().get(redis_input_key_2)
-
-
-
-=======
 
 def _merging_data(
     redis_wikidata_key: str,
@@ -224,4 +189,3 @@ saving_node = PythonOperator(
 )
 
 cleansing_wikidata_node >> merging_node >> saving_node
->>>>>>> 1897a43a7667864aa5a7bf8c279c6ccb5f628fc5
