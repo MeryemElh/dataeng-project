@@ -1,4 +1,5 @@
 import json
+from typing import Any
 import urllib.parse
 import datetime
 from time import sleep
@@ -6,7 +7,8 @@ from time import sleep
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
-from pymongo import MongoClient
+from pymongo import MongoClient, ASCENDING
+from pymongo.errors import DuplicateKeyError
 import redis
 from redis.commands.json.path import Path
 
@@ -44,7 +46,7 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
 
     # Goes through all the rows except the headers and add the elements in a list
     disstracks = []
-    for row in rows[1:]:
+    for row in rows[150:160]:
         # Gets all the elements of the row
         elements = row.find_all("td")
 
@@ -53,25 +55,35 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
         for index, elem in enumerate(elements):
             disstrack_infos[headers[index]] = elem.text.strip()
 
-        # Gets the link to the song wikipedia page if exists
+        # Gets the link to the targets and song wikipedia page if exists
         song_target_index = headers.index("Target(s)")
-        _add_wikipedia_id(elements,disstrack_infos, song_target_index, url, "wikidata target id")
+        try:
+            _add_wikidata_id(elements[song_target_index],disstrack_infos, url, "Wikidata target id")
+        except IndexError:
+            print(f"A disstrack doesn't have any target : {disstrack_infos}")
+            disstrack_infos["Wikipedia endpoint"] = ""
+            disstrack_infos["Wikidata target id"] = ""
 
         song_title_index = headers.index("Song Title")
-        _add_wikipedia_id(elements,disstrack_infos, song_title_index, url, "wikidata song id")
-
+        try:
+            _add_wikidata_id(elements[song_title_index],disstrack_infos, url, "Wikidata song id")
+        except IndexError:
+            print(f"A disstrack doesn't have any title : {disstrack_infos}")
+        
         # Mixing the song infos with the fixed infos and adding it to the list
         disstracks.append(dict(disstrack_infos, **fixed_properties))
 
     return disstracks
 
-def _add_wikipedia_id(elements:list,dissTrackInfos:dict, header:str, url: str, name:str):
-    if not elements[header].a:
+
+def _add_wikidata_id(element:Any,dissTrackInfos:dict, url: str, name:str):
+    if not element.a:
         dissTrackInfos["Wikipedia endpoint"] = ""
         dissTrackInfos[name] = ""
+
     else:
-        dissTrackInfos["Wikipedia endpoint"] = elements[header].a["href"]
-        # Gets the song Wikidata song id if exists
+        dissTrackInfos["Wikipedia endpoint"] = element.a["href"]
+        # Gets the song Wikidata id if exists
         page = requests.get(f"{url}{dissTrackInfos['Wikipedia endpoint']}")
         soup = BeautifulSoup(page.content, "html.parser")
         wikidata_tag = soup.find_all("span", string="Wikidata item")
@@ -82,10 +94,17 @@ def _add_wikipedia_id(elements:list,dissTrackInfos:dict, header:str, url: str, n
             dissTrackInfos[name] = (
                 wikidata_tag[0].parent["href"].rsplit("/", 1)[1]
             )
+    return dissTrackInfos
 
 
 def _scrap_disstrack_wikipage(
-    redis_output_key: str, redis_host: str, redis_port: str, redis_db: str, endpoint: str, url: str) -> None:
+    redis_output_key: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+    endpoint: str,
+    url: str,
+) -> None:
 
     page = requests.get(f"{url}{endpoint}")
     soup = BeautifulSoup(page.content, "html.parser")
@@ -127,7 +146,13 @@ first_node = PythonOperator(
 
 
 def _scrap_disstrack_dbpedia(
-    redis_output_key: str, redis_host: str, redis_port: str, redis_db: str, endpoint: str, url: str) -> None:
+    redis_output_key: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+    endpoint: str,
+    url: str,
+) -> None:
 
     # DBPedia query to get infos of all the disstracks present on DBPedia
     sparql_query = (
@@ -148,7 +173,9 @@ def _scrap_disstrack_dbpedia(
 
     # Save the result to redis db (to speed up the steps as it uses cache)
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    client.json().set(redis_output_key, Path.root_path(), json.loads(requests.get(api_request).text))
+    client.json().set(
+        redis_output_key, Path.root_path(), json.loads(requests.get(api_request).text)
+    )
 
 
 second_node = PythonOperator(
@@ -193,6 +220,7 @@ def _scrap_disstrack_wikidata_metadata_subject(diss_id: str, endpoint: str, url:
         )
     return r.json()
 
+
 def _scrap_disstrack_wikidata_metadata_target(target_id: str, endpoint: str, url: str):
 
     # Wikidata query to get metadata from disstracks
@@ -216,15 +244,19 @@ def _scrap_disstrack_wikidata_metadata_target(target_id: str, endpoint: str, url
     return r.json()
 
 
-
 def _scrap_all_disstracks_wikidata_metadata(
-    redis_input_key: str, redis_output_key: str, redis_host: str, redis_port: str, redis_db: str, endpoint: str, url: str
+    redis_input_key: str,
+    redis_output_key: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+    endpoint: str,
+    url: str,
 ):
 
     # Gets the precedent wikipedia list saved in redis
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     disstracks_list = client.json().get(redis_input_key)
-
 
     cpt = 0
     for diss in disstracks_list:
@@ -241,17 +273,16 @@ def _scrap_all_disstracks_wikidata_metadata(
                 diss["wikidata_metadata"] = {
                     "subject": raw_wikidata_metadata_subject["results"]["bindings"]
                 }
-
-        # If the diss has a Wikidata song id, we try to complete some metadata, else we add a blank json
+        
+        # If the diss has a Wikidata target id, we try to complete its type
         if diss["Wikidata target id"]:
             # If found subjects, add them to the metadata
             raw_wikidata_metadata_target = _scrap_disstrack_wikidata_metadata_target(
                 diss["Wikidata target id"], endpoint, url
             )
             if raw_wikidata_metadata_target["results"]["bindings"]:
-                diss["wikidata_metadata"]["target"] = raw_wikidata_metadata_target["results"]["bindings"]
-                
-        
+                    diss["wikidata_metadata"] = {
+                    "target": raw_wikidata_metadata_target["results"]["bindings"]}
 
     # Save the result to redis db (to speed up the steps as it uses cache)
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
@@ -277,21 +308,47 @@ third_node = PythonOperator(
 
 
 def _mongodb_saver(
-    redis_input_key: str, redis_host: str, redis_port: str, redis_db: str, mongo_host: str, mongo_port: str, mongo_database: str, mongo_collection: str
+    redis_input_key: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+    mongo_host: str,
+    mongo_port: str,
+    mongo_database: str,
+    mongo_collection: str,
 ):
 
     # Gets the input data saved in redis to save them in mongo
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    file_data = client.json().get(redis_input_key)
+    json_data = client.json().get(redis_input_key)
 
     client = MongoClient(f"mongodb://{mongo_host}:{mongo_port}/")
     db = client[mongo_database]
     col = db[mongo_collection]
 
-    if isinstance(file_data, list):
-        col.insert_many(file_data)
-    else:
-        col.insert_one(file_data)
+    if mongo_collection == "wikidata_disstracks":
+        col.create_index(
+            [
+                ("Date Released", ASCENDING),
+                ("Song Title", ASCENDING),
+                ("Artist(s)", ASCENDING),
+            ],
+            unique=True,
+        )
+        for doc in json_data:
+            try:
+                col.insert_one(doc)
+            except DuplicateKeyError:
+                # If song already exists in db, skip the insertion
+                pass
+    elif mongo_collection == "dbpedia_disstracks":
+        col.create_index("diss", unique=True)
+        for doc in json_data["results"]["bindings"]:
+            try:
+                col.insert_one(doc)
+            except DuplicateKeyError:
+                # If song already exists in db, skip the insertion
+                pass
 
 
 fourth_node = PythonOperator(
