@@ -55,10 +55,13 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
         for index, elem in enumerate(elements):
             disstrack_infos[headers[index]] = elem.text.strip()
 
-        # Gets the link to the song wikipedia page if exists
-        song_title_index = headers.index("Song Title")
-        _add_wikidata_id(elements[song_title_index],disstrack_infos, url, "wikidata song id")     
+        # Gets the link to the targets and song wikipedia page if exists
+        song_target_index = headers.index("Target(s)")
+        _add_wikidata_id(elements,disstrack_infos, song_target_index, url, "Wikidata target id")
 
+        song_title_index = headers.index("Song Title")
+        _add_wikidata_id(elements[song_title_index],disstrack_infos, url, "Wikidata song id")
+        
         # Mixing the song infos with the fixed infos and adding it to the list
         disstracks.append(dict(disstrack_infos, **fixed_properties))
 
