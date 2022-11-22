@@ -23,7 +23,16 @@ wrangling_dag = DAG(
     catchup=False,
 )
 
-def _cleansing_dbpedia_data(redis_output_key: str, redis_host: str, redis_port: str, redis_db: str,host: str, port: str, database: str):
+
+def _cleansing_dbpedia_data(
+    redis_output_key: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+    host: str,
+    port: str,
+    database: str,
+):
     client = MongoClient(f"mongodb://{host}:{port}/")
     db = client[database]
     dbpedia_data = db["dbpedia_disstracks"]
@@ -31,6 +40,7 @@ def _cleansing_dbpedia_data(redis_output_key: str, redis_host: str, redis_port: 
 
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     client.json().set(redis_output_key, Path.root_path(), dbpedia_df)
+
 
 first_node = PythonOperator(
     task_id="mongodb_reader_test",
@@ -49,13 +59,23 @@ first_node = PythonOperator(
     },
 )
 
-def _cleansing_wikidata_data(redis_output_key: str, redis_host: str, redis_port: str, redis_db: str,host: str, port: str, database: str):
+
+def _cleansing_wikidata_data(
+    redis_output_key: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+    host: str,
+    port: str,
+    database: str,
+):
     client = MongoClient(f"mongodb://{host}:{port}/")
     db = client[database]
     wikidata_data = db["wikidata_disstracks"]
     wikidata_df = pd.DataFrame(wikidata_data)
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     client.json().set(redis_output_key, Path.root_path(), wikidata_df)
+
 
 second_node = PythonOperator(
     task_id="_cleansing_wikidata_data",
@@ -71,14 +91,17 @@ second_node = PythonOperator(
         "port": "27017",
         "database": "data",
         "collection": "wikidata",
-
     },
 )
 
-def merging_data(redis_input_key_1: str, redis_input_key_2: str, redis_host: str, redis_port: str, redis_db: str):
+
+def merging_data(
+    redis_input_key_1: str,
+    redis_input_key_2: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+):
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     dbpedia_data = client.json().get(redis_input_key_1)
-    wikidata_data =client.json().get(redis_input_key_2)
-
-
-
+    wikidata_data = client.json().get(redis_input_key_2)
