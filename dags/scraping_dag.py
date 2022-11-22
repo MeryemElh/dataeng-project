@@ -281,8 +281,7 @@ def _scrap_all_disstracks_wikidata_metadata(
                 diss["Wikidata target id"], endpoint, url
             )
             if raw_wikidata_metadata_target["results"]["bindings"]:
-                    diss["wikidata_metadata"] = {
-                    "target": raw_wikidata_metadata_target["results"]["bindings"]}
+                    diss["wikidata_metadata"]["target"] = raw_wikidata_metadata_target["results"]["bindings"]
 
     # Save the result to redis db (to speed up the steps as it uses cache)
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
