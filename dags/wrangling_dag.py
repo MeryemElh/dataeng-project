@@ -36,14 +36,26 @@ def _get_dbpedia_data(
 
     mongo_client = MongoClient(f"mongodb://{host}:{port}/")
     db = mongo_client[database]
-    #format data
+    # format data
     dbpedia_data = db["dbpedia_disstracks"]
-    precleaned_db = [{"url":x["diss"]["value"],"Song Title":x["name"]["value"],"genre":x["genre"]["value"],"recorded":x["recorded"]["value"],"released":x["released"]["value"],"recordLabel":x["recordLabel"]["value"]} for x in list(dbpedia_data.find())]
-    #storing in redis
+    precleaned_db = [
+        {
+            "url": x["diss"]["value"],
+            "Song Title": x["name"]["value"],
+            "genre": x["genre"]["value"],
+            "recorded": x["recorded"]["value"],
+            "released": x["released"]["value"],
+            "recordLabel": x["recordLabel"]["value"],
+        }
+        for x in list(dbpedia_data.find())
+    ]
+    # storing in redis
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
-    redis_client.set("dbpedia_df", context.serialize(precleaned_db).to_buffer().to_pybytes())
-    
+    redis_client.set(
+        "dbpedia_df", context.serialize(precleaned_db).to_buffer().to_pybytes()
+    )
+
 
 get_dbpedia_node = PythonOperator(
     task_id="get_dbpedia_data",
@@ -60,6 +72,10 @@ get_dbpedia_node = PythonOperator(
         "database": "data",
         "collection": "wikidata",
     },
+)
+
+dbpedia_cleansing = EmptyOperator(
+    task_id="dbpedia_cleansing", dag=wrangling_dag, trigger_rule="all_success"
 )
 
 
@@ -81,12 +97,12 @@ def _get_wikidata_data(
     db = mongo_client[database]
     wikidata_data = db["wikidata_disstracks"]
     wikidata_df = pd.DataFrame(list(wikidata_data.find()))
-    #storing in redis
+    # storing in redis
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
-    redis_client.set("wikidata_df", context.serialize(wikidata_df).to_buffer().to_pybytes())
-
-
+    redis_client.set(
+        "wikidata_df", context.serialize(wikidata_df).to_buffer().to_pybytes()
+    )
 
 
 get_wikidata_node = PythonOperator(
@@ -103,8 +119,11 @@ get_wikidata_node = PythonOperator(
         "port": "27017",
         "database": "data",
         "collection": "wikidata",
-
     },
+)
+
+wikidata_cleansing = EmptyOperator(
+    task_id="wikidata_cleansing", dag=wrangling_dag, trigger_rule="all_success"
 )
 
 
@@ -121,14 +140,13 @@ def _merging_data(
     context = pa.default_serialization_context()
     wikidata_data = context.deserialize(redis_client.get("wikidata_df"))
     dbpedia_data = context.deserialize(redis_client.get("dbpedia_df"))
-    wikidata_df = pd.DataFrame(wikidata_data )
+    wikidata_df = pd.DataFrame(wikidata_data)
     dbpedia_df = pd.DataFrame(dbpedia_data)
     wikidata_df["Song Title"] = wikidata_df["Song Title"].str[1:-1]
-    pd.merge(wikidata_df, dbpedia_df, how="outer", on=["Song Title"])
+    merged_df = pd.merge(wikidata_df, dbpedia_df, how="outer", on=["Song Title"])
 
-    # wiki_df = pd.DataFrame(wikidata_data)
-    # print("Merging into one DF...")
-    # print(wiki_df)
+    # saving result to redis
+    redis_client.set("merged_df", context.serialize(merged_df).to_buffer().to_pybytes())
 
 
 merging_node = PythonOperator(
@@ -147,8 +165,8 @@ merging_node = PythonOperator(
 
 
 def _saving_to_postgres(
-    redis_wikidata_key: str,
-    redis_dbpedia_key: str,
+    redis_songs_key: str,
+    redis_groups_key: str,
     redis_host: str,
     redis_port: int,
     redis_db: int,
@@ -161,21 +179,20 @@ def _saving_to_postgres(
     import redis
     import pandas as pd
     from sqlalchemy import create_engine
+    import pyarrow as pa
 
-    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    wikidata_data = client.json().get(redis_wikidata_key)
-    dbpedia_data = client.json().get(redis_dbpedia_key)
+    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    context = pa.default_serialization_context()
+    songs = context.deserialize(redis_client.get(redis_songs_key))
+    # groups = context.deserialize(redis_client.get(redis_groups_key))
 
     sql_engine = create_engine(
         f"postgresql://{postgres_user}:{postgres_pswd}@{postgres_host}:{postgres_port}/{postgres_db}"
     )
 
-    print(wikidata_data)
-    wiki_df = pd.DataFrame(wikidata_data)
-    print(wiki_df)
-    wiki_df.drop(columns="wikidata_metadata", inplace=True)
-    print(wiki_df)
-    wiki_df.to_sql("wiki_df", sql_engine, if_exists="replace")
+    songs_df = pd.DataFrame(songs, dtype=str)
+    songs_df.drop(columns="wikidata_metadata", inplace=True)
+    songs_df.to_sql("songs", sql_engine, if_exists="replace")
 
 
 saving_node = PythonOperator(
@@ -184,8 +201,8 @@ saving_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_saving_to_postgres,
     op_kwargs={
-        "redis_wikidata_key": "wikidata_results",
-        "redis_dbpedia_key": "dbpedia_results",
+        "redis_songs_key": "merged_df",
+        "redis_groups_key": "groups_df",
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
@@ -197,4 +214,5 @@ saving_node = PythonOperator(
     },
 )
 
-get_wikidata_node >> get_dbpedia_node >> merging_node >> saving_node
+get_wikidata_node >> wikidata_cleansing >> merging_node >> saving_node
+get_dbpedia_node >> dbpedia_cleansing >> merging_node
