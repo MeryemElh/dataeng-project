@@ -57,15 +57,22 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
 
         # Gets the link to the targets and song wikipedia page if exists
         song_target_index = headers.index("Target(s)")
-        _add_wikidata_id(elements,disstrack_infos, song_target_index, url, "Wikidata target id")
+        try:
+            _add_wikidata_id(elements,disstrack_infos, song_target_index, url, "Wikidata target id")
+        except IndexError:
+            print(f"A disstrack doesn't have any target : {disstrack_infos}")
 
         song_title_index = headers.index("Song Title")
-        _add_wikidata_id(elements[song_title_index],disstrack_infos, url, "Wikidata song id")
+        try:
+            _add_wikidata_id(elements[song_title_index],disstrack_infos, url, "Wikidata song id")
+        except IndexError:
+            print(f"A disstrack doesn't have any title : {disstrack_infos}")
         
         # Mixing the song infos with the fixed infos and adding it to the list
         disstracks.append(dict(disstrack_infos, **fixed_properties))
 
     return disstracks
+
 
 def _add_wikidata_id(element:Any,dissTrackInfos:dict, url: str, name:str):
     if not element.a:
