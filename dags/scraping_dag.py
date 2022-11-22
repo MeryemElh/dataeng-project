@@ -1,4 +1,5 @@
 import json
+from typing import Any
 import urllib.parse
 import datetime
 from time import sleep
@@ -6,6 +7,8 @@ from time import sleep
 import requests
 from bs4 import BeautifulSoup
 from bs4.element import Tag
+from pymongo import MongoClient, ASCENDING
+from pymongo.errors import DuplicateKeyError
 import redis
 from redis.commands.json.path import Path
 
@@ -54,27 +57,31 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
 
         # Gets the link to the song wikipedia page if exists
         song_title_index = headers.index("Song Title")
-        if not elements[song_title_index].a:
-            disstrack_infos["Wikipedia endpoint"] = ""
-            disstrack_infos["Wikidata id"] = ""
-        else:
-            disstrack_infos["Wikipedia endpoint"] = elements[song_title_index].a["href"]
-            # Gets the song wikidata id if exists
-            page = requests.get(f"{url}{disstrack_infos['Wikipedia endpoint']}")
-            soup = BeautifulSoup(page.content, "html.parser")
-            wikidata_tag = soup.find_all("span", string="Wikidata item")
-            if not wikidata_tag:
-                disstrack_infos["Wikidata id"] = ""
-            else:
-                # From the full wikidata url, only take the part at the right of the last slash '/'
-                disstrack_infos["Wikidata id"] = (
-                    wikidata_tag[0].parent["href"].rsplit("/", 1)[1]
-                )
+        _add_wikidata_id(elements[song_title_index],disstrack_infos, url, "wikidata song id")     
 
         # Mixing the song infos with the fixed infos and adding it to the list
         disstracks.append(dict(disstrack_infos, **fixed_properties))
 
     return disstracks
+
+def _add_wikidata_id(element:Any,dissTrackInfos:dict, url: str, name:str):
+    if not element.a:
+        dissTrackInfos["Wikipedia endpoint"] = ""
+        dissTrackInfos[name] = ""
+    else:
+        dissTrackInfos["Wikipedia endpoint"] = element.a["href"]
+        # Gets the song Wikidata song id if exists
+        page = requests.get(f"{url}{dissTrackInfos['Wikipedia endpoint']}")
+        soup = BeautifulSoup(page.content, "html.parser")
+        wikidata_tag = soup.find_all("span", string="Wikidata item")
+        if not wikidata_tag:
+            dissTrackInfos[name] = ""
+        else:
+            # From the full wikidata url, only take the part at the right of the last slash '/'
+            dissTrackInfos[name] = (
+                wikidata_tag[0].parent["href"].rsplit("/", 1)[1]
+            )
+    return dissTrackInfos
 
 
 def _scrap_disstrack_wikipage(
@@ -218,13 +225,13 @@ def _scrap_all_disstracks_wikidata_metadata(
     cpt = 0
     for diss in disstracks_list:
         cpt += 1
-        print(cpt)
-        # If the diss has a wikidata id, we try to complete some metadata, else we add a blank json
+        
+        # If the diss has a Wikidata song id, we try to complete some metadata, else we add a blank json
         diss["wikidata_metadata"] = {}
-        if diss["Wikidata id"]:
+        if diss["Wikidata song id"]:
             # If found subjects, add them to the metadata
             raw_wikidata_metadata_subject = _scrap_disstrack_wikidata_metadata_subject(
-                diss["Wikidata id"], endpoint, url
+                diss["Wikidata song id"], endpoint, url
             )
             if raw_wikidata_metadata_subject["results"]["bindings"]:
                 diss["wikidata_metadata"] = {
@@ -264,8 +271,6 @@ def _mongodb_saver(
     mongo_database: str,
     mongo_collection: str,
 ):
-    from pymongo import MongoClient, ASCENDING
-    from pymongo.errors import DuplicateKeyError
 
     # Gets the input data saved in redis to save them in mongo
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
