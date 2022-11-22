@@ -124,11 +124,13 @@ def _merging_data(
     wikidata_df = pd.DataFrame(wikidata_data )
     dbpedia_df = pd.DataFrame(dbpedia_data)
     wikidata_df["Song Title"] = wikidata_df["Song Title"].str[1:-1]
-    pd.merge(wikidata_df, dbpedia_df, how="outer", on=["Song Title"])
+    merged_df = pd.merge(wikidata_df, dbpedia_df, how="outer", on=["Song Title"])
 
-    # wiki_df = pd.DataFrame(wikidata_data)
-    # print("Merging into one DF...")
-    # print(wiki_df)
+    #storing in redis
+    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    context = pa.default_serialization_context()
+    redis_client.set("merged_df", context.serialize(merged_df).to_buffer().to_pybytes())
+
 
 
 merging_node = PythonOperator(
@@ -137,8 +139,51 @@ merging_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_merging_data,
     op_kwargs={
-        "redis_wikidata_key": "wikidata_results",
-        "redis_dbpedia_key": "dbpedia_results",
+        "redis_host": "rejson",
+        "redis_port": 6379,
+        "redis_db": 0,
+    },
+)
+
+
+def _cleansing_data(
+    redis_host: str,
+    redis_port: int,
+    redis_db: int,
+):
+    import redis
+    import pandas as pd
+    import pyarrow as pa
+
+    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    context = pa.default_serialization_context()
+    data = context.deserialize(redis_client.get("merged_df"))
+    df = pd.DataFrame(data)
+    df.drop(["url","recordLabel","_id","Ref(s)","Wikipedia endpoint"],axis=1)
+    #formating and adding two cols from metadata
+    target_type = []
+    artists = []
+    for elem in df["wikidata_metadata"]:
+        if(type(elem)!=dict):
+            target_type.append("")
+            artists.append("")
+        if(type(elem)==dict):
+            target_type.append(elem.get("target", "") and elem["target"][0]["type_label"]["value"])
+            artists.append(elem.get("artists", "") and elem["artists"][0]["author_label"]["value"])
+    df['Target Type'] = target_type
+    df['Song Artist'] = artists
+    #storing in redis
+    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    context = pa.default_serialization_context()
+    redis_client.set("df", context.serialize(df).to_buffer().to_pybytes())
+
+
+cleansing_node = PythonOperator(
+    task_id="cleansing_data",
+    dag=wrangling_dag,
+    trigger_rule="none_failed",
+    python_callable=_cleansing_data,
+    op_kwargs={
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
@@ -197,4 +242,4 @@ saving_node = PythonOperator(
     },
 )
 
-get_wikidata_node >> get_dbpedia_node >> merging_node >> saving_node
+get_wikidata_node >> get_dbpedia_node >> merging_node >> cleansing_node >> saving_node
