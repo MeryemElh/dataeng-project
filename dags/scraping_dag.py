@@ -54,28 +54,34 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
             disstrack_infos[headers[index]] = elem.text.strip()
 
         # Gets the link to the song wikipedia page if exists
+        song_target_index = headers.index("Target(s)")
+        _add_wikipedia_id(elements,disstrack_infos, song_target_index, url, "wikidata target id")
+
         song_title_index = headers.index("Song Title")
-        if not elements[song_title_index].a:
-            disstrack_infos["Wikipedia endpoint"] = ""
-            disstrack_infos["Wikidata id"] = ""
-        else:
-            disstrack_infos["Wikipedia endpoint"] = elements[song_title_index].a["href"]
-            # Gets the song wikidata id if exists
-            page = requests.get(f"{url}{disstrack_infos['Wikipedia endpoint']}")
-            soup = BeautifulSoup(page.content, "html.parser")
-            wikidata_tag = soup.find_all("span", string="Wikidata item")
-            if not wikidata_tag:
-                disstrack_infos["Wikidata id"] = ""
-            else:
-                # From the full wikidata url, only take the part at the right of the last slash '/'
-                disstrack_infos["Wikidata id"] = (
-                    wikidata_tag[0].parent["href"].rsplit("/", 1)[1]
-                )
+        _add_wikipedia_id(elements,disstrack_infos, song_title_index, url, "wikidata song id")
 
         # Mixing the song infos with the fixed infos and adding it to the list
         disstracks.append(dict(disstrack_infos, **fixed_properties))
 
     return disstracks
+
+def _add_wikipedia_id(elements:list,dissTrackInfos:dict, header:str, url: str, name:str):
+    if not elements[header].a:
+        dissTrackInfos["Wikipedia endpoint"] = ""
+        dissTrackInfos[name] = ""
+    else:
+        dissTrackInfos["Wikipedia endpoint"] = elements[header].a["href"]
+        # Gets the song Wikidata song id if exists
+        page = requests.get(f"{url}{dissTrackInfos['Wikipedia endpoint']}")
+        soup = BeautifulSoup(page.content, "html.parser")
+        wikidata_tag = soup.find_all("span", string="Wikidata item")
+        if not wikidata_tag:
+            dissTrackInfos[name] = ""
+        else:
+            # From the full wikidata url, only take the part at the right of the last slash '/'
+            dissTrackInfos[name] = (
+                wikidata_tag[0].parent["href"].rsplit("/", 1)[1]
+            )
 
 
 def _scrap_disstrack_wikipage(
@@ -187,6 +193,29 @@ def _scrap_disstrack_wikidata_metadata_subject(diss_id: str, endpoint: str, url:
         )
     return r.json()
 
+def _scrap_disstrack_wikidata_metadata_target(target_id: str, endpoint: str, url: str):
+
+    # Wikidata query to get metadata from disstracks
+    sparql_query = (
+        "SELECT DISTINCT ?type_id ?type_label "
+        "WHERE { " 
+            f"wd:{target_id} wdt:P31 ?type_id. " 
+            "?type_id rdfs:label ?type_label. "
+            "filter(lang(?type_label) = 'en') "
+        "}"
+    )
+    r = requests.get(
+        f"{url}{endpoint}", params={"format": "json", "query": sparql_query}
+    )
+    if not r.ok:
+        # Probable too many requests, so timeout and retry
+        sleep(1)
+        r = requests.get(
+            f"{url}{endpoint}", params={"format": "json", "query": sparql_query}
+        )
+    return r.json()
+
+
 
 def _scrap_all_disstracks_wikidata_metadata(
     redis_input_key: str, redis_output_key: str, redis_host: str, redis_port: str, redis_db: str, endpoint: str, url: str
@@ -200,18 +229,29 @@ def _scrap_all_disstracks_wikidata_metadata(
     cpt = 0
     for diss in disstracks_list:
         cpt += 1
-        print(cpt)
-        # If the diss has a wikidata id, we try to complete some metadata, else we add a blank json
+        
+        # If the diss has a Wikidata song id, we try to complete some metadata, else we add a blank json
         diss["wikidata_metadata"] = {}
-        if diss["Wikidata id"]:
+        if diss["Wikidata song id"]:
             # If found subjects, add them to the metadata
             raw_wikidata_metadata_subject = _scrap_disstrack_wikidata_metadata_subject(
-                diss["Wikidata id"], endpoint, url
+                diss["Wikidata song id"], endpoint, url
             )
             if raw_wikidata_metadata_subject["results"]["bindings"]:
                 diss["wikidata_metadata"] = {
                     "subject": raw_wikidata_metadata_subject["results"]["bindings"]
                 }
+
+        # If the diss has a Wikidata song id, we try to complete some metadata, else we add a blank json
+        if diss["Wikidata target id"]:
+            # If found subjects, add them to the metadata
+            raw_wikidata_metadata_target = _scrap_disstrack_wikidata_metadata_target(
+                diss["Wikidata target id"], endpoint, url
+            )
+            if raw_wikidata_metadata_target["results"]["bindings"]:
+                diss["wikidata_metadata"]["target"] = raw_wikidata_metadata_target["results"]["bindings"]
+                
+        
 
     # Save the result to redis db (to speed up the steps as it uses cache)
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
