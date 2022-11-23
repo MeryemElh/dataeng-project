@@ -87,6 +87,12 @@ We have two very different data sources : Wikidata and DBPedia. That pipeline wi
 It extracts the data from MongoDB and stores it in PostgreSQL using Redis in between.
 The main tool used here is obviously Pandas as it provides with very efficient tools for data wrangling given that we can understand them.
 
+The schema is:
+![alt text](/doc/postgres_schema.png)
+
+The data looks like that:
+![alt text](/doc/postgres_data.png)
+
 ## Production phase
 
 ...
@@ -104,7 +110,7 @@ The main tool used here is obviously Pandas as it provides with very efficient t
   - [X] Enrichment
   - [ ] Persistancy
 - [ ] Production
-  - [ ] Permanent db
+  - [X] Permanent db
   - [ ] Launch analytics
 
 ## Project
@@ -128,6 +134,6 @@ The main tool used here is obviously Pandas as it provides with very efficient t
     - [ ] neo4j
   - [ ] Optional
     - [X] Redis
-    - [ ] STAR Schema for SQL
+    - [X] STAR Schema for SQL
     - [X] launching docker containers via airflow to schedule job
     - [ ] kafka
