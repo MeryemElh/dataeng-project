@@ -93,6 +93,9 @@ The schema is:
 The data looks like that:
 ![alt text](/doc/postgres_data.png)
 
+We also save the data to a neo4j db to simplify the management of the relationships between the people and answer our initial questions (who disses who and who's dissed by whom). A visualization of the obtained graph looks like that:
+![alt text](/doc/graph.png)
+The data saved in neo4j are simply the artists and their target's names and wikidata id.
 ## Production phase
 
 ...
@@ -112,7 +115,7 @@ TODO: what are the next steps that could be done with the project (and that we d
   - [X] Cleaning
   - [X] Transformation
   - [X] Enrichment
-  - [ ] Persistancy
+  - [X] Persistancy
 - [ ] Production
   - [X] Permanent db
   - [ ] Launch analytics
@@ -130,12 +133,12 @@ TODO: what are the next steps that could be done with the project (and that we d
   - [ ] Slides
   - [ ] Jupyter frontend (Optional)
 - [ ] Technos
-  - [ ] Mandatory
+  - [X] Mandatory
     - [X] Airflow
     - [X] Pandas
     - [X] MongoDB
     - [X] Postgres
-    - [ ] neo4j
+    - [X] neo4j
   - [ ] Optional
     - [X] Redis
     - [X] STAR Schema for SQL
