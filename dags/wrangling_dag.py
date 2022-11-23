@@ -1,6 +1,10 @@
 import datetime
+import json
+import urllib.parse
+import requests
 
 from airflow import DAG
+from time import sleep
 from airflow.operators.python import PythonOperator
 from airflow.operators.empty import EmptyOperator
 import pandas as pd
@@ -175,7 +179,8 @@ def _cleansing_data(
     context = pa.default_serialization_context()
     data = context.deserialize(redis_client.get("merged_df"))
     df = pd.DataFrame(data)
-    df.drop(["url","recordLabel","_id","Ref(s)","Wikipedia endpoint"],axis=1)
+    #droping unimportant columns
+    df = df.drop(["url","recordLabel","_id","Ref(s)","Wikipedia endpoint"],axis=1)
     #formating and adding two cols from metadata
     target_type = []
     artists = []
@@ -201,6 +206,90 @@ cleansing_node = PythonOperator(
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
+    },
+)
+
+def _get_informations(target_id: str, endpoint: str, url: str):
+
+    # Wikidata query to get target information 
+    sparql_query = (
+    "SELECT DISTINCT ?occupation_label ?first_name ?last_name ?birth_place "
+        "WHERE { "
+        f"wd:{target_id} wdt:P106 ?occupation_id. "
+        "?occupation_id rdfs:label ?occupation_label. "
+        f"wd:{target_id} wdt:P735|wdt:P1477|wdt:P1559 ?first_name_id. "
+        "?first_name_id rdfs:label ?first_name. "
+        f"wd:{target_id} wdt:P734 ?last_name_id. "
+        "?last_name_id rdfs:label ?last_name. "
+        f"wd:{target_id} wdt:P19 ?birth_place_id. "
+        "?birth_place_id rdfs:label ?birth_place. "
+        "filter(lang(?occupation_label) = 'en') "
+        "filter(lang(?first_name) = 'en') "
+        "filter(lang(?last_name) = 'en') "
+        "filter(lang(?birth_place) = 'en') "
+        "}"
+    )
+    r = requests.get(f"{url}{endpoint}", params={"format": "json", "query": sparql_query})
+    if not r.ok:
+        # Probable too many requests, so timeout and retry
+        sleep(1)
+        r = requests.get(
+            f"{url}{endpoint}", params={"format": "json", "query": sparql_query}
+        )
+    return r.json()
+
+
+def _data_enrichment(
+    redis_host: str,
+    redis_port: int,
+    redis_db: int,
+    endpoint: str,
+    url: str,
+):
+    import redis
+    import pandas as pd
+    import pyarrow as pa
+    import requests
+    import json
+    from time import sleep
+
+
+    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    context = pa.default_serialization_context()
+    df = context.deserialize(redis_client.get("df"))
+    persons_data = []
+    for row in df.iterrows(): 
+        if(row[1]["Target Type"] == "human"):
+            target_id = row[1]["Wikidata target id"] 
+            person_data = _get_informations(target_id,endpoint,url)
+            if person_data["results"]["bindings"]:
+                    persons_data.append(person_data["results"]["bindings"])
+
+    persons_fdata = [
+        {
+            "Occupation Label": x["occupation_label"]["value"],
+            "First Name": x["first_name"]["value"],
+            "Last Name": x["last_name"]["value"],
+            "Birth Place": x["birth_place"]["value"],
+        }
+        for x in persons_data[0]
+    ]
+    persons_df = pd.DataFrame(persons_fdata)
+    #storing in redis
+    redis_client.set("persons_df", context.serialize(persons_df).to_buffer().to_pybytes())
+
+
+enrichment_node = PythonOperator(
+    task_id="data_enrichment",
+    dag=wrangling_dag,
+    trigger_rule="none_failed",
+    python_callable=_data_enrichment,
+    op_kwargs={
+        "redis_host": "rejson",
+        "redis_port": 6379,
+        "redis_db": 0,
+        "endpoint": "/sparql",
+        "url": "https://query.wikidata.org",
     },
 )
 
@@ -255,4 +344,4 @@ saving_node = PythonOperator(
     },
 )
 
-get_wikidata_node >> get_dbpedia_node >> merging_node >> cleansing_node >> saving_node
+get_wikidata_node >> get_dbpedia_node >> merging_node >> cleansing_node >> enrichment_node >> saving_node
