@@ -97,7 +97,7 @@ The data looks like that:
 
 ...
 
-## Next steps
+# Next steps
 
 TODO: what are the next steps that could be done with the project (and that we don't have time for)
 
