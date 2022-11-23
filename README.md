@@ -90,3 +90,44 @@ The main tool used here is obviously Pandas as it provides with very efficient t
 ## Production phase
 
 ...
+
+# Instructions
+
+# Pipelines
+
+- [X] Data Ingestion
+  - [X] Multiple data sources
+  - [X] Transient storage
+- [X] Data wrangling
+  - [X] Cleaning
+  - [X] Transformation
+  - [X] Enrichment
+  - [ ] Persistancy
+- [ ] Production
+  - [ ] Permanent db
+  - [ ] Launch analytics
+
+## Project
+
+- [X] Online repository
+  - [X] Docker-compose
+  - [ ] Description of the steps
+    - [X] Ingestion
+    - [X] Wrangling
+    - [ ] Production
+  - [ ] Report
+  - [X] Offline dataset
+  - [ ] Slides
+  - [ ] Jupyter frontend (Optional)
+- [ ] Technos
+  - [ ] Mandatory
+    - [X] Airflow
+    - [X] Pandas
+    - [X] MongoDB
+    - [X] Postgres
+    - [ ] neo4j
+  - [ ] Optional
+    - [X] Redis
+    - [ ] STAR Schema for SQL
+    - [X] launching docker containers via airflow to schedule job
+    - [ ] kafka
