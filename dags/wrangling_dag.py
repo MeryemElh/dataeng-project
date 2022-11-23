@@ -154,6 +154,7 @@ merging_node = PythonOperator(
 
 def _cleansing_data(
     redis_output_key: str,
+    redis_input_key:str,
     redis_host: str,
     redis_port: int,
     redis_db: int,
@@ -161,10 +162,10 @@ def _cleansing_data(
 
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
-    data = context.deserialize(redis_client.get("merged_df"))
+    data = context.deserialize(redis_client.get(redis_input_key))
     df = pd.DataFrame(data)
     #droping unimportant columns
-    df = df.drop(["url","recordLabel","_id","Ref(s)","Wikipedia endpoint"],axis=1)
+    df = df.drop(["url","recordLabel","_id","Ref(s)","Wikipedia endpoint","Notes","origin"],axis=1)
     #formating and adding two cols from metadata
     target_type = []
     artists = []
@@ -177,6 +178,14 @@ def _cleansing_data(
             artists.append(elem.get("artists", "") and elem["artists"][0]["author_label"]["value"])
     df['Target Type'] = target_type
     df['Song Artist'] = artists
+    # drop wikidata table after formating its content in cols
+    df = df.drop(["wikidata_metadata"],axis=1)
+    # merging information to handle nan
+    artists_df = df['Artist(s)'].combine_first(df['Song Artist'])
+    released_df = df['released'].combine_first(df['Date Released'])
+    df = df.join(artists_df, lsuffix='_caller', rsuffix='_song')
+    df = df.join(released_df, lsuffix='_caller', rsuffix='_song')
+    df = df.drop(["Artist(s)_caller","released_caller","Date Released","Song Artist"],axis=1)
     #storing in redis
     redis_client.set(redis_output_key, context.serialize(df).to_buffer().to_pybytes())
 
@@ -188,6 +197,7 @@ cleansing_node = PythonOperator(
     python_callable=_cleansing_data,
     op_kwargs={
         "redis_output_key": "df",
+        "redis_input_key":"merged_df",
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
@@ -277,14 +287,20 @@ def _data_enrichment(
             target_id = row[1]["Wikidata target id"] 
             person_data = _person_request(target_id,endpoint,url)
             if person_data["results"]["bindings"]:
+                    person_data["results"]["bindings"][0]["target id"]=target_id
                     persons_data.append(person_data["results"]["bindings"])
-
+    print(persons_data)
+    for x in persons_data[0]:
+        #print(x["target id"])
+        pass
+    print(persons_data[0])
     persons_fdata = [
         {
             "Occupation Label": x["occupation_label"]["value"],
             "First Name": x["first_name"]["value"],
             "Last Name": x["last_name"]["value"],
             "Birth Place": x["birth_place"]["value"],
+            #"person id": x["target id"]
         }
         for x in persons_data[0]
     ]
@@ -296,22 +312,29 @@ def _data_enrichment(
             target_id = row[1]["Wikidata target id"] 
             group_data = _group_request(target_id,endpoint,url)
             if group_data["results"]["bindings"]:
+                    group_data["results"]["bindings"][0]["target id"]=target_id
                     groups_data.append(group_data["results"]["bindings"])
-
+                    
+    
+    print(groups_data)
     groups_fdata = [
         {
             "Name": x["name"]["value"],
             "Inception": x["inception"]["value"],
             "Country": x["origin_country_label"]["value"],
             "Number of Nominations": x["nb_nominations"]["value"],
+            #"group id": x["target id"],
         }
         for x in groups_data[0]
     ]
     groups_df = pd.DataFrame(groups_fdata)
+    df = df.drop(["Target Type"],axis=1)
+    print(df)
 
     #storing in redis
     redis_client.set("persons_df", context.serialize(persons_df).to_buffer().to_pybytes())
     redis_client.set("groups_df", context.serialize(groups_df).to_buffer().to_pybytes())
+    redis_client.set("df", context.serialize(df).to_buffer().to_pybytes())
 
 enrichment_node = PythonOperator(
     task_id="data_enrichment",
