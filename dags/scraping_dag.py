@@ -46,7 +46,7 @@ def _scrap_disstrack_list(table: Tag, fixed_properties: dict, url: str):
 
     # Goes through all the rows except the headers and add the elements in a list
     disstracks = []
-    for row in rows[150:160]:
+    for row in rows[1:]:
         # Gets all the elements of the row
         elements = row.find_all("td")
 

@@ -316,7 +316,7 @@ def _data_enrichment(
     for row in df.iterrows(): 
         if("group" in row[1]["Target Type"].lower() or "duo" in row[1]["Target Type"].lower()):
             target_id = row[1]["Wikidata target id"] 
-            group_data = _person_request(target_id,endpoint,url)
+            group_data = _group_request(target_id,endpoint,url)
             if group_data["results"]["bindings"]:
                     groups_data.append(group_data["results"]["bindings"])
 
