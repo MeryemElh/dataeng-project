@@ -13,10 +13,8 @@ import redis
 from redis.commands.json.path import Path
 
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.operators.python import PythonOperator, BranchPythonOperator
 from airflow.operators.empty import EmptyOperator
-
-# from airflow.operators.bash import BashOperator
 
 
 default_args_dict = {
@@ -32,6 +30,100 @@ data_collection_dag = DAG(
     default_args=default_args_dict,
     catchup=False,
     template_searchpath=["/opt/airflow/data/"],
+)
+
+
+offline_source_node = EmptyOperator(
+    task_id="offline_source", dag=data_collection_dag, trigger_rule="all_success"
+)
+
+
+start_scrapper_node = EmptyOperator(
+    task_id="scrapper_departure", dag=data_collection_dag, trigger_rule="all_success"
+)
+
+
+def _check_connection():
+
+    try:
+        requests.get("https://google.com")
+    except requests.exceptions.ConnectionError:
+        return "offline_source"
+
+    return "scrapper_departure"
+        
+
+connection_check_node = BranchPythonOperator(
+    task_id='connection_check',
+    dag=data_collection_dag,
+    python_callable= _check_connection,
+    op_kwargs={},
+    trigger_rule='all_success',
+)
+
+
+def _scrap_disstrack_dbpedia(
+    filepath_input: str,
+    redis_output_key: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+) -> None:
+
+    # Fetched url to get our results from dbpedia in a json format
+    with open(filepath_input, "r+", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Save the result to redis db (to speed up the steps as it uses cache)
+    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    client.json().set(redis_output_key, Path.root_path(), data)
+
+
+dbpedia_offline_node = PythonOperator(
+    task_id="dbpedia_offline_list",
+    dag=data_collection_dag,
+    trigger_rule="all_success",
+    python_callable=_scrap_disstrack_dbpedia,
+    op_kwargs={
+        "filepath_input": "/opt/airflow/data/offline_dbpedia_data.json",
+        "redis_output_key": "dbpedia_results",
+        "redis_host": "rejson",
+        "redis_port": 6379,
+        "redis_db": 0,
+    },
+    depends_on_past=False,
+)
+
+
+def _scrap_all_disstracks_wikidata_metadata(
+    filepath_input: str,
+    redis_output_key: str,
+    redis_host: str,
+    redis_port: str,
+    redis_db: str,
+):
+
+    with open(filepath_input, "r+", encoding="utf-8") as f:
+        disstracks_list = json.load(f)
+
+    # Save the result to redis db (to speed up the steps as it uses cache)
+    client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    client.json().set(redis_output_key, Path.root_path(), disstracks_list)
+
+
+wikidata_offline_node = PythonOperator(
+    task_id="wikidata_offline_metadata",
+    dag=data_collection_dag,
+    trigger_rule="all_success",
+    python_callable=_scrap_all_disstracks_wikidata_metadata,
+    op_kwargs={
+        "filepath_input": "/opt/airflow/data/offline_wikidata_data.json",
+        "redis_output_key": "wikidata_results",
+        "redis_host": "rejson",
+        "redis_port": 6379,
+        "redis_db": 0,
+    },
+    depends_on_past=False,
 )
 
 
@@ -130,10 +222,10 @@ def _scrap_disstrack_wikipage(
     client.json().set(redis_output_key, Path.root_path(), disstracks_infos)
 
 
-first_node = PythonOperator(
+wikipedia_node = PythonOperator(
     task_id="wikipedia_list",
     dag=data_collection_dag,
-    trigger_rule="none_failed",
+    trigger_rule="all_success",
     python_callable=_scrap_disstrack_wikipage,
     op_kwargs={
         "redis_output_key": "wikipedia_results",
@@ -148,6 +240,7 @@ first_node = PythonOperator(
 
 
 def _scrap_disstrack_dbpedia(
+    filepath_output: str,
     redis_output_key: str,
     redis_host: str,
     redis_port: str,
@@ -172,20 +265,26 @@ def _scrap_disstrack_dbpedia(
     api_request = (
         f"{url}{endpoint}?query={urllib.parse.quote_plus(sparql_query)}&format=json"
     )
+    json_data = json.loads(requests.get(api_request).text)
+
+    # Persist the data in a json in case no connection is available next time
+    with open(filepath_output, "w+", encoding="utf-8") as f:
+        json.dump(json_data, f)
 
     # Save the result to redis db (to speed up the steps as it uses cache)
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     client.json().set(
-        redis_output_key, Path.root_path(), json.loads(requests.get(api_request).text)
+        redis_output_key, Path.root_path(), json_data
     )
 
 
-second_node = PythonOperator(
+dbpedia_node = PythonOperator(
     task_id="dbpedia_list",
     dag=data_collection_dag,
-    trigger_rule="none_failed",
+    trigger_rule="all_success",
     python_callable=_scrap_disstrack_dbpedia,
     op_kwargs={
+        "filepath_output": "/opt/airflow/data/offline_dbpedia_data.json",
         "redis_output_key": "dbpedia_results",
         "redis_host": "rejson",
         "redis_port": 6379,
@@ -246,6 +345,7 @@ def _scrap_disstrack_wikidata_metadata_target(target_id: str, endpoint: str, url
 def _scrap_all_disstracks_wikidata_metadata(
     redis_input_key: str,
     redis_output_key: str,
+    filepath_output: str,
     redis_host: str,
     redis_port: str,
     redis_db: str,
@@ -282,12 +382,16 @@ def _scrap_all_disstracks_wikidata_metadata(
             if raw_wikidata_metadata_target["results"]["bindings"]:
                     diss["wikidata_metadata"]["target"] = raw_wikidata_metadata_target["results"]["bindings"]
 
+    # Persist the data in a json in case no connection is available next time
+    with open(filepath_output, "w+", encoding="utf-8") as f:
+        json.dump(disstracks_list, f)
+
     # Save the result to redis db (to speed up the steps as it uses cache)
     client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     client.json().set(redis_output_key, Path.root_path(), disstracks_list)
 
 
-third_node = PythonOperator(
+wikidata_node = PythonOperator(
     task_id="wikidata_metadata",
     dag=data_collection_dag,
     trigger_rule="all_success",
@@ -295,6 +399,7 @@ third_node = PythonOperator(
     op_kwargs={
         "redis_input_key": "wikipedia_results",
         "redis_output_key": "wikidata_results",
+        "filepath_output": "/opt/airflow/data/offline_wikidata_data.json",
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
@@ -336,6 +441,7 @@ def _mongodb_saver(
         for doc in json_data:
             try:
                 col.insert_one(doc)
+                print("inserted")
             except DuplicateKeyError:
                 # If song already exists in db, skip the insertion
                 pass
@@ -345,14 +451,15 @@ def _mongodb_saver(
             try:
                 col.insert_one(doc)
             except DuplicateKeyError:
+                print("not inserted")
                 # If song already exists in db, skip the insertion
                 pass
 
 
-fourth_node = PythonOperator(
+mongo_wiki_node = PythonOperator(
     task_id="mongodb_saver_wikidata",
     dag=data_collection_dag,
-    trigger_rule="all_success",
+    trigger_rule="one_success",
     python_callable=_mongodb_saver,
     op_kwargs={
         "redis_input_key": "wikidata_results",
@@ -367,10 +474,10 @@ fourth_node = PythonOperator(
 )
 
 
-fifth_node = PythonOperator(
+mongo_dbpedia_node = PythonOperator(
     task_id="mongodb_saver_dbpedia",
     dag=data_collection_dag,
-    trigger_rule="all_success",
+    trigger_rule="one_success",
     python_callable=_mongodb_saver,
     op_kwargs={
         "redis_input_key": "dbpedia_results",
@@ -385,10 +492,16 @@ fifth_node = PythonOperator(
 )
 
 
-sixth_node = EmptyOperator(
-    task_id="finale", dag=data_collection_dag, trigger_rule="none_failed"
+last_node = EmptyOperator(
+    task_id="finale", dag=data_collection_dag, trigger_rule="all_success"
 )
 
 
-first_node >> third_node >> fourth_node >> sixth_node
-second_node >> fifth_node >> sixth_node
+
+connection_check_node >> [start_scrapper_node, offline_source_node]
+
+start_scrapper_node >> wikipedia_node >> wikidata_node >> mongo_wiki_node >> last_node
+start_scrapper_node >> dbpedia_node >> mongo_dbpedia_node >> last_node
+
+offline_source_node >> wikidata_offline_node >> mongo_wiki_node >> last_node
+offline_source_node >> dbpedia_offline_node >> mongo_dbpedia_node >> last_node
