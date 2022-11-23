@@ -209,7 +209,7 @@ cleansing_node = PythonOperator(
     },
 )
 
-def _get_informations(target_id: str, endpoint: str, url: str):
+def _person_request(target_id: str, endpoint: str, url: str):
 
     # Wikidata query to get target information 
     sparql_query = (
@@ -239,6 +239,41 @@ def _get_informations(target_id: str, endpoint: str, url: str):
     return r.json()
 
 
+def _group_request(target_id: str, endpoint: str, url: str):
+
+    # Wikidata query to get target information 
+    sparql_query = (
+        "SELECT DISTINCT (sample(?name) as ?name) ?inception ?origin_country_label (count(?nominations) as ?nb_nominations) "
+        "WHERE "
+        "{ "
+            "OPTIONAL{ "
+                f"wd:{target_id} rdfs:label ?name. "
+                "filter(lang(?name) = 'en') "
+            "} "
+            "OPTIONAL{ "
+                f"wd:{target_id} wdt:P571 ?inception. "
+            "} "
+            "OPTIONAL{ "
+                f"wd:{target_id} wdt:P495 ?origin_country. "
+                "?origin_country rdfs:label ?origin_country_label. "
+                "filter(lang(?origin_country_label) = 'en') "
+            "} "
+            "OPTIONAL{ "
+                f"wd:{target_id} wdt:P1411 ?nominations. "
+            "} "
+        "} "
+        "GROUP BY ?inception ?origin_country_label "
+    )
+    r = requests.get(f"{url}{endpoint}", params={"format": "json", "query": sparql_query})
+    if not r.ok:
+        # Probable too many requests, so timeout and retry
+        sleep(1)
+        r = requests.get(
+            f"{url}{endpoint}", params={"format": "json", "query": sparql_query}
+        )
+    return r.json()
+
+
 def _data_enrichment(
     redis_host: str,
     redis_port: int,
@@ -257,11 +292,12 @@ def _data_enrichment(
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
     df = context.deserialize(redis_client.get("df"))
+
     persons_data = []
     for row in df.iterrows(): 
         if(row[1]["Target Type"] == "human"):
             target_id = row[1]["Wikidata target id"] 
-            person_data = _get_informations(target_id,endpoint,url)
+            person_data = _person_request(target_id,endpoint,url)
             if person_data["results"]["bindings"]:
                     persons_data.append(person_data["results"]["bindings"])
 
@@ -275,9 +311,29 @@ def _data_enrichment(
         for x in persons_data[0]
     ]
     persons_df = pd.DataFrame(persons_fdata)
+
+    groups_data = []
+    for row in df.iterrows(): 
+        if("group" in row[1]["Target Type"].lower() or "duo" in row[1]["Target Type"].lower()):
+            target_id = row[1]["Wikidata target id"] 
+            group_data = _person_request(target_id,endpoint,url)
+            if group_data["results"]["bindings"]:
+                    groups_data.append(group_data["results"]["bindings"])
+
+    groups_fdata = [
+        {
+            "Name": x["name"]["value"],
+            "Inception": x["inception"]["value"],
+            "Country": x["origin_country_label"]["value"],
+            "Number of Nominations": x["nb_nominations"]["value"],
+        }
+        for x in groups_data[0]
+    ]
+    groups_df = pd.DataFrame(groups_fdata)
+
     #storing in redis
     redis_client.set("persons_df", context.serialize(persons_df).to_buffer().to_pybytes())
-
+    redis_client.set("groups_df", context.serialize(groups_df).to_buffer().to_pybytes())
 
 enrichment_node = PythonOperator(
     task_id="data_enrichment",
