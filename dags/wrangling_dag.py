@@ -332,6 +332,7 @@ enrichment_node = PythonOperator(
 def _saving_to_postgres(
     redis_songs_key: str,
     redis_groups_key: str,
+    redis_persons_key: str,
     redis_host: str,
     redis_port: int,
     redis_db: int,
@@ -342,22 +343,16 @@ def _saving_to_postgres(
     postgres_pswd: str,
 ):
 
-    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
-    context = pa.default_serialization_context()
-    #songs = context.deserialize(redis_client.get(redis_songs_key))
-    # groups = context.deserialize(redis_client.get(redis_groups_key))
-
     Base = declarative_base()
-
-
-   # ['_id' 'Date Released' 'Song Title' 'Artist(s)' 'Target(s)' 'Response\xa0to(if applicable)' 'Notes' 'Ref(s)' 'Wikipedia endpoint' 'Wikidata target id' 'Wikidata song id' 'origin' 'wikidata_metadata' 'url' 'genre' 'recorded' 'released' 'recordLabel']
 
     class Song(Base):
         __tablename__ = "song"
         id = Column(Integer, primary_key=True)
         title = Column(String, nullable=False)
         release_date = Column(DateTime)
+        record_date = Column(DateTime)
         genre = Column(String)
+        wikidata_id = Column(String)
         artist_id = Column(Integer, ForeignKey("entity.id"), nullable=False)
         target_id = Column(Integer, ForeignKey("entity.id"), nullable=False)
         
@@ -376,6 +371,7 @@ def _saving_to_postgres(
         id = Column(Integer, primary_key=True)
         name = Column(String, nullable=False)
         type = Column(String(50))
+        wikidata_id = Column(String)
 
         __mapper_args__ = {
             "polymorphic_identity": "entity",
@@ -388,6 +384,10 @@ def _saving_to_postgres(
     class Human(Entity):
         __tablename__ = "human"
         id = Column(Integer, ForeignKey("entity.id"), primary_key=True)
+        occupation = Column(String)
+        first_name = Column(String)
+        last_name = Column(String)
+        birth_place = Column(String)
 
         __mapper_args__ = {
             "polymorphic_identity": "human",
@@ -396,6 +396,9 @@ def _saving_to_postgres(
     class Group(Entity):
         __tablename__ = "group"
         id = Column(Integer, ForeignKey("entity.id"), primary_key=True)
+        country = Column(String)
+        nb_nominations = Column(Integer)
+        inception = Column(DateTime)
 
         __mapper_args__ = {
             "polymorphic_identity": "group",
@@ -412,19 +415,70 @@ def _saving_to_postgres(
     engine = create_engine(
         f"postgresql://{postgres_user}:{postgres_pswd}@{postgres_host}:{postgres_port}/{postgres_db}"
     )
-
+    
     Base.metadata.drop_all(engine)
     Base.metadata.create_all(engine)
 
-    with Session(engine) as session:
-        zevaistetaper = Song(title="zevetetape", release_date = datetime.datetime.strptime("23/11/2000", "%d/%m/%Y"), genre="inexisutanto", artist=Human(name="El dissor"), target=Human(name="El disseded"))
-        zevaistetaper2 = Song(title="zevetetape2", release_date = datetime.datetime.strptime("23/11/2000", "%d/%m/%Y") , genre="inexisutanto", artist=Human(name="El dissoror"), target=Human(name="El disseded"))
-        session.add_all([zevaistetaper, zevaistetaper2])
-        session.commit()
+    redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
+    context = pa.default_serialization_context()
+    songs = context.deserialize(redis_client.get(redis_songs_key))
+    groups = context.deserialize(redis_client.get(redis_groups_key))
+    persons = context.deserialize(redis_client.get(redis_persons_key))
 
-    #songs_df = pd.DataFrame(songs, dtype=str)
-    #songs_df.drop(columns="wikidata_metadata", inplace=True)
-    #songs_df.to_sql("songs", sql_engine, if_exists="replace")
+    songs_df = pd.DataFrame(songs, dtype=str)
+    groups_df = pd.DataFrame(groups, dtype=str)
+    persons_df = pd.DataFrame(persons, dtype=str)
+
+    def convert_date(str_date: str):
+        try:
+            return datetime.datetime.strptime(str_date, "%Y-%m-%d")
+        except ValueError:
+            try:
+                return datetime.datetime.strptime(str_date, "%Y")
+            except ValueError:
+                return None
+            
+    with Session(engine) as session:
+
+        available_entities = {}
+        
+        for row in groups_df.iterrows():
+            name = row[1]["Name"]
+            country = row[1]["Country"]
+            nb_nominations = int(row[1]["Number of Nominations"])
+            inception = convert_date(row[1]["Inception"])
+            target_id = row[1]["group id"]
+
+            group = Group(name = name, wikidata_id = target_id, country = country, nb_nominations = nb_nominations, inception = inception)
+            available_entities[target_id] = group
+            session.add(group)
+        
+        for row in persons_df.iterrows():
+            name = f'{row[1]["Last Name"]} {row[1]["First Name"]}'
+            occupation = row[1]["Occupation Label"]
+            first_name = row[1]["First Name"]
+            last_name = row[1]["Last Name"]
+            birth_place = row[1]["Birth Place"]
+            target_id = row[1]["person id"]
+            
+            person = Human(name = name, wikidata_id = target_id, occupation = occupation, first_name = first_name, last_name = last_name, birth_place = birth_place)
+            available_entities[target_id] = person
+            session.add(person)
+
+        for row in songs_df.iterrows():
+            recorded = convert_date(row[1]["recorded"])
+            released = convert_date(row[1]["released_other"])
+            artists_names = row[1]["Artist(s)_other"]
+            song_wiki_id = row[1]["Wikidata song id"]
+            target_wiki_id = row[1]["Wikidata target id"]
+            Targets_names = row[1]["Target(s)"]
+            genre = row[1]["genre"]
+            song_title = row[1]["Song Title"]
+
+            song = Song(title=song_title, release_date = released, genre=genre, record_date = recorded, wikidata_id = song_wiki_id, artist=Other(name=artists_names), target=available_entities.get(target_wiki_id, "") or Other(name=Targets_names))
+            session.add(song)
+
+        session.commit()
 
 
 saving_node = PythonOperator(
@@ -433,8 +487,9 @@ saving_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_saving_to_postgres,
     op_kwargs={
-        "redis_songs_key": "merged_df",
+        "redis_songs_key": "df",
         "redis_groups_key": "groups_df",
+        "redis_persons_key": "persons_df",
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
