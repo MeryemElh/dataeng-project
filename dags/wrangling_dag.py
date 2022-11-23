@@ -282,52 +282,35 @@ def _data_enrichment(
     context = pa.default_serialization_context()
     df = context.deserialize(redis_client.get("df"))
 
-    persons_data = []
+    groups_fdata = []
+    persons_fdata = []
     for row in df.iterrows(): 
         if(row[1]["Target Type"] == "human"):
             target_id = row[1]["Wikidata target id"] 
             person_data = _person_request(target_id,endpoint,url)
             if person_data["results"]["bindings"]:
-                    person_data["results"]["bindings"][0]["target id"]=target_id
-                    persons_data.append(person_data["results"]["bindings"])
-    print(persons_data)
-    for x in persons_data[0]:
-        #print(x["target id"])
-        pass
-    print(persons_data[0])
-    persons_fdata = [
-        {
-            "Occupation Label": x["occupation_label"]["value"],
-            "First Name": x["first_name"]["value"],
-            "Last Name": x["last_name"]["value"],
-            "Birth Place": x["birth_place"]["value"],
-            #"person id": x["target id"]
-        }
-        for x in persons_data[0]
-    ]
-    persons_df = pd.DataFrame(persons_fdata)
-
-    groups_data = []
-    for row in df.iterrows(): 
-        if("group" in row[1]["Target Type"].lower() or "duo" in row[1]["Target Type"].lower()):
+                x = person_data["results"]["bindings"][0]
+                persons_fdata.append({
+                    "Occupation Label": x["occupation_label"]["value"],
+                    "First Name": x["first_name"]["value"],
+                    "Last Name": x["last_name"]["value"],
+                    "Birth Place": x["birth_place"]["value"],
+                    "person id": target_id
+                })
+        elif("group" in row[1]["Target Type"].lower() or "duo" in row[1]["Target Type"].lower()):
             target_id = row[1]["Wikidata target id"] 
             group_data = _group_request(target_id,endpoint,url)
             if group_data["results"]["bindings"]:
-                    group_data["results"]["bindings"][0]["target id"]=target_id
-                    groups_data.append(group_data["results"]["bindings"])
-                    
-    
-    print(groups_data)
-    groups_fdata = [
-        {
-            "Name": x["name"]["value"],
-            "Inception": x["inception"]["value"],
-            "Country": x["origin_country_label"]["value"],
-            "Number of Nominations": x["nb_nominations"]["value"],
-            #"group id": x["target id"],
-        }
-        for x in groups_data[0]
-    ]
+                x = group_data["results"]["bindings"][0]
+                groups_fdata.append({
+                    "Name": x["name"]["value"],
+                    "Inception": x["inception"]["value"],
+                    "Country": x["origin_country_label"]["value"],
+                    "Number of Nominations": x["nb_nominations"]["value"],
+                    "group id": target_id
+                })
+                
+    persons_df = pd.DataFrame(persons_fdata)
     groups_df = pd.DataFrame(groups_fdata)
     df = df.drop(["Target Type"],axis=1)
     print(df)
@@ -490,8 +473,8 @@ def _saving_to_postgres(
 
         for row in songs_df.iterrows():
             recorded = convert_date(row[1]["recorded"])
-            released = convert_date(row[1]["released_other"])
-            artists_names = row[1]["Artist(s)_other"]
+            released = convert_date(row[1]["released_song"])
+            artists_names = row[1]["Artist(s)_song"]
             song_wiki_id = row[1]["Wikidata song id"]
             target_wiki_id = row[1]["Wikidata target id"]
             Targets_names = row[1]["Target(s)"]
