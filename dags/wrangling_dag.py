@@ -287,14 +287,20 @@ def _data_enrichment(
             target_id = row[1]["Wikidata target id"] 
             person_data = _person_request(target_id,endpoint,url)
             if person_data["results"]["bindings"]:
+                    person_data["results"]["bindings"][0]["target id"]=target_id
                     persons_data.append(person_data["results"]["bindings"])
-
+    print(persons_data)
+    for x in persons_data[0]:
+        #print(x["target id"])
+        pass
+    print(persons_data[0])
     persons_fdata = [
         {
             "Occupation Label": x["occupation_label"]["value"],
             "First Name": x["first_name"]["value"],
             "Last Name": x["last_name"]["value"],
             "Birth Place": x["birth_place"]["value"],
+            #"person id": x["target id"]
         }
         for x in persons_data[0]
     ]
@@ -306,14 +312,18 @@ def _data_enrichment(
             target_id = row[1]["Wikidata target id"] 
             group_data = _group_request(target_id,endpoint,url)
             if group_data["results"]["bindings"]:
+                    group_data["results"]["bindings"][0]["target id"]=target_id
                     groups_data.append(group_data["results"]["bindings"])
-
+                    
+    
+    print(groups_data)
     groups_fdata = [
         {
             "Name": x["name"]["value"],
             "Inception": x["inception"]["value"],
             "Country": x["origin_country_label"]["value"],
             "Number of Nominations": x["nb_nominations"]["value"],
+            #"group id": x["target id"],
         }
         for x in groups_data[0]
     ]
