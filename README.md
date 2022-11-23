@@ -66,3 +66,27 @@ Structure of the data we want to have in our staging area (in Postgres database)
 | 7   | 1971              | How Do You Sleep ?    | John Lennon  | Paul McCartney  | Personal slights Lennon felt McCartney made on the latter's album Ram       | Q2453037    | 7         | 8         |
 | 37  | February 12, 1998 | '97 Bonnie & Clyde    | Eminem       | Kim Mathers     |                                                                             | Q4540403    | 31        | 35        |
 | 87  | July 6, 2009      | United Breaks Guitars | Dave Carroll | United Airlines | United Airlines employees breaking Carroll's guitar while on board a flight | Q1567288    | 78        | 83        |
+
+# Project steps
+
+## Ingestion phase
+
+The first dag is responsible for collecting the data. The choice that was made was to retrieve the data from dbpedia, wikipedia and wikidata. The down half of the picture shows how the data is collected : 
+- Disstracks and their metadata are retrieved from dbpedia. They're simply saved to mongodb.
+- A disstrack list is scrapped from wikipedia, for each one of them, their wikipedia page is scrapped to find the wikidata id and metadata is retrieved from there. The node 'wikipedia_list' scraps the wikipedia list and the wikipedia pages. The node 'wikidata_metadata' gets the additional metadata from wikidata. Everything is lastly stored in mongodb.
+
+A node can be noticed at the beginning, it's use is to ping Google and check for connection availability. In case connection is available, then the steps just described are the only ones executed. In the other case, the upper part of the picture will be the executed one. It'll simply load the data from local files. These files are updated each time the normal part of the pipeline is executed. We can say that it loads the latest version of the data.
+
+![alt text](/doc/ingestion_dag.png)
+
+Nb: All the steps communicate through redis to be more efficient by using cache.
+
+## Wrangling phase
+
+We have two very different data sources : Wikidata and DBPedia. That pipeline will merge them to have coherent data and cleanse them.
+It extracts the data from MongoDB and stores it in PostgreSQL using Redis in between.
+The main tool used here is obviously Pandas as it provides with very efficient tools for data wrangling given that we can understand them.
+
+## Production phase
+
+...
