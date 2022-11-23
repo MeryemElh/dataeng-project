@@ -87,6 +87,9 @@ We have two very different data sources : Wikidata and DBPedia. That pipeline wi
 It extracts the data from MongoDB and stores it in PostgreSQL using Redis in between.
 The main tool used here is obviously Pandas as it provides with very efficient tools for data wrangling given that we can understand them.
 
+We also save the data to a neo4j db to simplify the management of the relationships between the people and answer our initial questions (who disses who and who's dissed by whom). A visualization of the obtained graph looks like that:
+![alt text](/doc/graph.png)
+The data saved in neo4j are simply the artists and their target's names and wikidata id.
 ## Production phase
 
 ...
@@ -102,7 +105,7 @@ The main tool used here is obviously Pandas as it provides with very efficient t
   - [X] Cleaning
   - [X] Transformation
   - [X] Enrichment
-  - [ ] Persistancy
+  - [X] Persistancy
 - [ ] Production
   - [X] Permanent db
   - [ ] Launch analytics
@@ -120,12 +123,12 @@ The main tool used here is obviously Pandas as it provides with very efficient t
   - [ ] Slides
   - [ ] Jupyter frontend (Optional)
 - [ ] Technos
-  - [ ] Mandatory
+  - [X] Mandatory
     - [X] Airflow
     - [X] Pandas
     - [X] MongoDB
     - [X] Postgres
-    - [ ] neo4j
+    - [X] neo4j
   - [ ] Optional
     - [X] Redis
     - [X] STAR Schema for SQL
