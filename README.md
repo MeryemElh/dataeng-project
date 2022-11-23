@@ -87,6 +87,9 @@ We have two very different data sources : Wikidata and DBPedia. That pipeline wi
 It extracts the data from MongoDB and stores it in PostgreSQL using Redis in between.
 The main tool used here is obviously Pandas as it provides with very efficient tools for data wrangling given that we can understand them.
 
+The schema is:
+![alt text](/doc/postgres_schema.png)
+
 ## Production phase
 
 ...
