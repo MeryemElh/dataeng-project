@@ -154,6 +154,7 @@ merging_node = PythonOperator(
 
 def _cleansing_data(
     redis_output_key: str,
+    redis_input_key:str,
     redis_host: str,
     redis_port: int,
     redis_db: int,
@@ -161,7 +162,7 @@ def _cleansing_data(
 
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
-    data = context.deserialize(redis_client.get("merged_df"))
+    data = context.deserialize(redis_client.get(redis_input_key))
     df = pd.DataFrame(data)
     #droping unimportant columns
     df = df.drop(["url","recordLabel","_id","Ref(s)","Wikipedia endpoint","Notes","origin"],axis=1)
@@ -196,6 +197,7 @@ cleansing_node = PythonOperator(
     python_callable=_cleansing_data,
     op_kwargs={
         "redis_output_key": "df",
+        "redis_input_key":"merged_df",
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
