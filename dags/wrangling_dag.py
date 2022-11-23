@@ -1,12 +1,13 @@
 import datetime
-import json
-import urllib.parse
 import requests
+from pymongo import MongoClient
+import redis
+import pyarrow as pa
+from sqlalchemy import create_engine
 
 from airflow import DAG
 from time import sleep
 from airflow.operators.python import PythonOperator
-from airflow.operators.empty import EmptyOperator
 import pandas as pd
 
 default_args_dict = {
@@ -33,10 +34,6 @@ def _get_dbpedia_data(
     port: str,
     database: str,
 ):
-    from pymongo import MongoClient
-    import redis
-    from redis.commands.json.path import Path
-    import pyarrow as pa
 
     mongo_client = MongoClient(f"mongodb://{host}:{port}/")
     db = mongo_client[database]
@@ -53,11 +50,12 @@ def _get_dbpedia_data(
         }
         for x in list(dbpedia_data.find())
     ]
+
     # storing in redis
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
     redis_client.set(
-        "dbpedia_df", context.serialize(precleaned_db).to_buffer().to_pybytes()
+        redis_output_key, context.serialize(precleaned_db).to_buffer().to_pybytes()
     )
 
 
@@ -67,7 +65,7 @@ get_dbpedia_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_get_dbpedia_data,
     op_kwargs={
-        "redis_output_key": "dbpedia_results",
+        "redis_output_key": "dbpedia_df",
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
@@ -76,10 +74,6 @@ get_dbpedia_node = PythonOperator(
         "database": "data",
         "collection": "wikidata",
     },
-)
-
-dbpedia_cleansing = EmptyOperator(
-    task_id="dbpedia_cleansing", dag=wrangling_dag, trigger_rule="all_success"
 )
 
 
@@ -92,20 +86,17 @@ def _get_wikidata_data(
     port: str,
     database: str,
 ):
-    from pymongo import MongoClient
-    import redis
-    from redis.commands.json.path import Path
-    import pyarrow as pa
 
     mongo_client = MongoClient(f"mongodb://{host}:{port}/")
     db = mongo_client[database]
     wikidata_data = db["wikidata_disstracks"]
     wikidata_df = pd.DataFrame(list(wikidata_data.find()))
+
     # storing in redis
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
     redis_client.set(
-        "wikidata_df", context.serialize(wikidata_df).to_buffer().to_pybytes()
+        redis_output_key, context.serialize(wikidata_df).to_buffer().to_pybytes()
     )
 
 
@@ -115,7 +106,7 @@ get_wikidata_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_get_wikidata_data,
     op_kwargs={
-        "redis_output_key": "wikidata_results",
+        "redis_output_key": "wikidata_df",
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
@@ -126,19 +117,13 @@ get_wikidata_node = PythonOperator(
     },
 )
 
-wikidata_cleansing = EmptyOperator(
-    task_id="wikidata_cleansing", dag=wrangling_dag, trigger_rule="all_success"
-)
-
 
 def _merging_data(
+    redis_output_key: str,
     redis_host: str,
     redis_port: int,
     redis_db: int,
 ):
-    import redis
-    import pandas as pd
-    import pyarrow as pa
 
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
@@ -150,7 +135,7 @@ def _merging_data(
     merged_df = pd.merge(wikidata_df, dbpedia_df, how="outer", on=["Song Title"])
 
     # saving result to redis
-    redis_client.set("merged_df", context.serialize(merged_df).to_buffer().to_pybytes())
+    redis_client.set(redis_output_key, context.serialize(merged_df).to_buffer().to_pybytes())
 
 
 merging_node = PythonOperator(
@@ -159,6 +144,7 @@ merging_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_merging_data,
     op_kwargs={
+        "redis_output_key": "merged_df",
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
@@ -167,13 +153,11 @@ merging_node = PythonOperator(
 
 
 def _cleansing_data(
+    redis_output_key: str,
     redis_host: str,
     redis_port: int,
     redis_db: int,
 ):
-    import redis
-    import pandas as pd
-    import pyarrow as pa
 
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
@@ -194,7 +178,7 @@ def _cleansing_data(
     df['Target Type'] = target_type
     df['Song Artist'] = artists
     #storing in redis
-    redis_client.set("df", context.serialize(df).to_buffer().to_pybytes())
+    redis_client.set(redis_output_key, context.serialize(df).to_buffer().to_pybytes())
 
 
 cleansing_node = PythonOperator(
@@ -203,6 +187,7 @@ cleansing_node = PythonOperator(
     trigger_rule="none_failed",
     python_callable=_cleansing_data,
     op_kwargs={
+        "redis_output_key": "df",
         "redis_host": "rejson",
         "redis_port": 6379,
         "redis_db": 0,
@@ -281,14 +266,7 @@ def _data_enrichment(
     endpoint: str,
     url: str,
 ):
-    import redis
-    import pandas as pd
-    import pyarrow as pa
-    import requests
-    import json
-    from time import sleep
-
-
+    
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
     df = context.deserialize(redis_client.get("df"))
@@ -362,10 +340,6 @@ def _saving_to_postgres(
     postgres_user: str,
     postgres_pswd: str,
 ):
-    import redis
-    import pandas as pd
-    from sqlalchemy import create_engine
-    import pyarrow as pa
 
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
