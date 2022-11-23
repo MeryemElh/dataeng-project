@@ -2,3 +2,4 @@ beautifulsoup4==4.11.1
 redis==4.3.4
 apache-airflow[postgres, mongo, neo4j]
 pyarrow
+py2neo

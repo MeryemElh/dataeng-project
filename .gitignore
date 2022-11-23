@@ -3,3 +3,4 @@
 /logs/*
 .env
 /data/*
+/neo4j/*
