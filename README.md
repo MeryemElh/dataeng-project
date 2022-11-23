@@ -104,7 +104,7 @@ The main tool used here is obviously Pandas as it provides with very efficient t
   - [X] Enrichment
   - [ ] Persistancy
 - [ ] Production
-  - [ ] Permanent db
+  - [X] Permanent db
   - [ ] Launch analytics
 
 ## Project
@@ -128,6 +128,6 @@ The main tool used here is obviously Pandas as it provides with very efficient t
     - [ ] neo4j
   - [ ] Optional
     - [X] Redis
-    - [ ] STAR Schema for SQL
+    - [X] STAR Schema for SQL
     - [X] launching docker containers via airflow to schedule job
     - [ ] kafka
