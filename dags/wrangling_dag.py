@@ -3,7 +3,8 @@ import requests
 from pymongo import MongoClient
 import redis
 import pyarrow as pa
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, Column, ForeignKey, Integer, String, DateTime
+from sqlalchemy.orm import declarative_base, relationship, Session
 
 from airflow import DAG
 from time import sleep
@@ -343,16 +344,87 @@ def _saving_to_postgres(
 
     redis_client = redis.Redis(host=redis_host, port=redis_port, db=redis_db)
     context = pa.default_serialization_context()
-    songs = context.deserialize(redis_client.get(redis_songs_key))
+    #songs = context.deserialize(redis_client.get(redis_songs_key))
     # groups = context.deserialize(redis_client.get(redis_groups_key))
 
-    sql_engine = create_engine(
+    Base = declarative_base()
+
+
+   # ['_id' 'Date Released' 'Song Title' 'Artist(s)' 'Target(s)' 'Response\xa0to(if applicable)' 'Notes' 'Ref(s)' 'Wikipedia endpoint' 'Wikidata target id' 'Wikidata song id' 'origin' 'wikidata_metadata' 'url' 'genre' 'recorded' 'released' 'recordLabel']
+
+    class Song(Base):
+        __tablename__ = "song"
+        id = Column(Integer, primary_key=True)
+        title = Column(String, nullable=False)
+        release_date = Column(DateTime)
+        genre = Column(String)
+        artist_id = Column(Integer, ForeignKey("entity.id"), nullable=False)
+        target_id = Column(Integer, ForeignKey("entity.id"), nullable=False)
+        
+        artist = relationship(
+            "Entity", backref="produced_disses", foreign_keys=[artist_id]
+        )
+        target = relationship(
+            "Entity", backref="targeted_disses", foreign_keys=[target_id]
+        )
+        def __repr__(self):
+            return f"Song(id={self.id!r}, title={self.title!r}, release_date={self.release_date!r}, release_date={self.release_date!r})"
+    
+        
+    class Entity(Base):
+        __tablename__ = "entity"
+        id = Column(Integer, primary_key=True)
+        name = Column(String, nullable=False)
+        type = Column(String(50))
+
+        __mapper_args__ = {
+            "polymorphic_identity": "entity",
+            "polymorphic_on": type,
+        }
+        
+        def __repr__(self):
+            return f"Entity(id={self.id!r}, name={self.name!r}, produced_disses={self.produced_disses!r},  targeted_disses={self.targeted_disses!r})"
+        
+    class Human(Entity):
+        __tablename__ = "human"
+        id = Column(Integer, ForeignKey("entity.id"), primary_key=True)
+
+        __mapper_args__ = {
+            "polymorphic_identity": "human",
+        }
+        
+    class Group(Entity):
+        __tablename__ = "group"
+        id = Column(Integer, ForeignKey("entity.id"), primary_key=True)
+
+        __mapper_args__ = {
+            "polymorphic_identity": "group",
+        }
+        
+    class Other(Entity):
+        __tablename__ = "other"
+        id = Column(Integer, ForeignKey("entity.id"), primary_key=True)
+
+        __mapper_args__ = {
+            "polymorphic_identity": "other",
+        }
+
+    engine = create_engine(
         f"postgresql://{postgres_user}:{postgres_pswd}@{postgres_host}:{postgres_port}/{postgres_db}"
     )
 
-    songs_df = pd.DataFrame(songs, dtype=str)
-    songs_df.drop(columns="wikidata_metadata", inplace=True)
-    songs_df.to_sql("songs", sql_engine, if_exists="replace")
+    Base.metadata.drop_all(engine)
+    Base.metadata.create_all(engine)
+
+    with Session(engine) as session:
+        zevaistetaper = Song(title="zevetetape", release_date = datetime.datetime.strptime("23/11/2000", "%d/%m/%Y"), genre="inexisutanto", artist=Human(name="El dissor"), target=Human(name="El disseded"))
+        zevaistetaper2 = Song(title="zevetetape2", release_date = datetime.datetime.strptime("23/11/2000", "%d/%m/%Y") , genre="inexisutanto", artist=Human(name="El dissoror"), target=Human(name="El disseded"))
+        session.add_all([zevaistetaper, zevaistetaper2])
+        session.commit()
+
+    #songs_df = pd.DataFrame(songs, dtype=str)
+    #songs_df.drop(columns="wikidata_metadata", inplace=True)
+    #songs_df.to_sql("songs", sql_engine, if_exists="replace")
 
 
 saving_node = PythonOperator(
