@@ -130,7 +130,7 @@ def _scrap_disstrack_wikipage(
     client.json().set(redis_output_key, Path.root_path(), disstracks_infos)
 
 
-first_node = PythonOperator(
+wikipedia_node = PythonOperator(
     task_id="wikipedia_list",
     dag=data_collection_dag,
     trigger_rule="none_failed",
@@ -180,7 +180,7 @@ def _scrap_disstrack_dbpedia(
     )
 
 
-second_node = PythonOperator(
+dbpedia_node = PythonOperator(
     task_id="dbpedia_list",
     dag=data_collection_dag,
     trigger_rule="none_failed",
@@ -287,7 +287,7 @@ def _scrap_all_disstracks_wikidata_metadata(
     client.json().set(redis_output_key, Path.root_path(), disstracks_list)
 
 
-third_node = PythonOperator(
+wikidata_node = PythonOperator(
     task_id="wikidata_metadata",
     dag=data_collection_dag,
     trigger_rule="all_success",
@@ -349,7 +349,7 @@ def _mongodb_saver(
                 pass
 
 
-fourth_node = PythonOperator(
+mongo_wiki_node = PythonOperator(
     task_id="mongodb_saver_wikidata",
     dag=data_collection_dag,
     trigger_rule="all_success",
@@ -367,7 +367,7 @@ fourth_node = PythonOperator(
 )
 
 
-fifth_node = PythonOperator(
+mongo_dbpedia_node = PythonOperator(
     task_id="mongodb_saver_dbpedia",
     dag=data_collection_dag,
     trigger_rule="all_success",
@@ -385,10 +385,10 @@ fifth_node = PythonOperator(
 )
 
 
-sixth_node = EmptyOperator(
+last_node = EmptyOperator(
     task_id="finale", dag=data_collection_dag, trigger_rule="none_failed"
 )
 
 
-first_node >> third_node >> fourth_node >> sixth_node
-second_node >> fifth_node >> sixth_node
+wikipedia_node >> wikidata_node >> mongo_wiki_node >> last_node
+dbpedia_node >> mongo_dbpedia_node >> last_node
