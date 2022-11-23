@@ -90,6 +90,9 @@ The main tool used here is obviously Pandas as it provides with very efficient t
 The schema is:
 ![alt text](/doc/postgres_schema.png)
 
+The data looks like that:
+![alt text](/doc/postgres_data.png)
+
 ## Production phase
 
 ...
