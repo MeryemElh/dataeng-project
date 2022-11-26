@@ -6,6 +6,7 @@ from sqlalchemy import create_engine
 from py2neo import Graph
 
 from airflow import DAG
+from airflow.providers.papermill.operators.papermill import PapermillOperator
 from airflow.operators.python import PythonOperator
 from airflow.operators.empty import EmptyOperator
 
@@ -78,6 +79,15 @@ graph_node = PythonOperator(
         "neo_host": "neo4j",
         "neo_port": "7687",
     },
+)
+
+notebook_task = PapermillOperator(
+    task_id="run_example_notebook",
+    dag=production_dag,
+    trigger_rule="all_success",
+    input_nb="/opt/airflow/data/example_notebook.ipynb",
+    output_nb="/opt/airflow/results/out-{{ execution_date }}.ipynb",
+    parameters={"execution_date": "{{ execution_date }}"},
 )
 
 end_node = EmptyOperator(

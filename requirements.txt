@@ -3,3 +3,5 @@ redis==4.3.4
 apache-airflow[postgres, mongo, neo4j]
 pyarrow
 py2neo
+apache-airflow-providers-papermill
+ipykernel
