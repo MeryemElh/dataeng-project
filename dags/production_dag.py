@@ -82,10 +82,10 @@ graph_node = PythonOperator(
 )
 
 notebook_task = PapermillOperator(
-    task_id="run_example_notebook",
+    task_id="run_analytics_notebook",
     dag=production_dag,
     trigger_rule="all_success",
-    input_nb="/opt/airflow/data/example_notebook.ipynb",
+    input_nb="/opt/airflow/data/analytics.ipynb",
     output_nb="/opt/airflow/results/out-{{ execution_date }}.ipynb",
     parameters={"execution_date": "{{ execution_date }}"},
 )
@@ -94,4 +94,4 @@ end_node = EmptyOperator(
     task_id="end_task", dag=production_dag, trigger_rule="all_success"
 )
 
-start_node >> graph_node >> end_node
+start_node >> graph_node >> notebook_task >> end_node
