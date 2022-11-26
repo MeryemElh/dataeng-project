@@ -5,3 +5,5 @@ pyarrow
 py2neo
 apache-airflow-providers-papermill
 ipykernel
+networkx
+matplotlib
