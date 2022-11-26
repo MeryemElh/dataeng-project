@@ -15,7 +15,7 @@ import pandas as pd
 default_args_dict = {
     "start_date": datetime.datetime(2022, 11, 8, 0, 0, 0),
     "concurrency": 1,
-    "schedule_interval": "0 0 * * *",  # Every day at midnight
+    "schedule_interval": "0 2 * * *",  # Every day at 2am
     "retries": 1,
     "retry_delay": datetime.timedelta(seconds=15),
 }
