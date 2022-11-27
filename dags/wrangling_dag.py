@@ -5,7 +5,6 @@ import redis
 import pyarrow as pa
 from sqlalchemy import create_engine, Column, ForeignKey, Integer, String, DateTime
 from sqlalchemy.orm import declarative_base, relationship, Session
-from py2neo import Graph
 
 from airflow import DAG
 from time import sleep
@@ -15,7 +14,7 @@ import pandas as pd
 default_args_dict = {
     "start_date": datetime.datetime(2022, 11, 8, 0, 0, 0),
     "concurrency": 1,
-    "schedule_interval": "0 0 * * *",  # Every day at midnight
+    "schedule_interval": "0 2 * * *",  # Every day at 2am
     "retries": 1,
     "retry_delay": datetime.timedelta(seconds=15),
 }
@@ -474,56 +473,4 @@ saving_node = PythonOperator(
     },
 )
 
-def _saving_to_neo4j(
-    pg_user: str,
-    pg_pwd: str,
-    pg_host: str,
-    pg_port: str,
-    pg_db: str,
-    neo_host: str,
-    neo_port: str,
-):
-
-    query = """
-                SELECT artist_id, target_id, a.name AS artist_name, b.name AS target_name
-                FROM song, entity as a, entity as b
-                WHERE artist_id=a.id AND target_id=b.id
-            """
-    
-    engine = create_engine(
-        f'postgresql://{pg_user}:{pg_pwd}@{pg_host}:{pg_port}/{pg_db}'
-    )
-    df = pd.read_sql(query, con=engine)
-    print(df.columns.values)
-    engine.dispose()
-
-    graph = Graph(f"bolt://{neo_host}:{neo_port}")
-
-    graph.delete_all()
-    tx = graph.begin()
-    for _, row in df.iterrows():
-        tx.evaluate('''
-        MERGE (a:artist {wikidata_id:$artist_id, name:$artist_name})
-        MERGE (b:target {wikidata_id:$target_id, name:$target_name})
-        MERGE (a)-[r:diss]->(b)
-        ''', parameters = {'artist_id': int(row['artist_id']), 'artist_name': row['artist_name'], 'target_id': int(row['target_id']), 'target_name': row['target_name']})
-    tx.commit()
-
-graph_node = PythonOperator(
-    task_id="saving_to_neo4j",
-    dag=wrangling_dag,
-    trigger_rule="all_success",
-    python_callable=_saving_to_neo4j,
-    op_kwargs={
-        "pg_user": "airflow",
-        "pg_pwd": "airflow",
-        "pg_host": "postgres",
-        "pg_port": "5432",
-        "pg_db": "postgres",
-        "neo_host": "neo4j",
-        "neo_port": "7687",
-    },
-)
-
-
-get_wikidata_node >> get_dbpedia_node >> merging_node >> cleansing_node >> enrichment_node >> saving_node >> graph_node
+get_wikidata_node >> get_dbpedia_node >> merging_node >> cleansing_node >> enrichment_node >> saving_node

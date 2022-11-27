@@ -93,20 +93,28 @@ The schema is:
 The data looks like that:
 ![alt text](/doc/postgres_data.png)
 
-We also save the data to a neo4j db to simplify the management of the relationships between the people and answer our initial questions (who disses who and who's dissed by whom). A visualization of the obtained graph looks like that:
-![alt text](/doc/graph.png)
-The data saved in neo4j are simply the artists and their target's names and wikidata id.
 ## Production phase
 
-...
+In that dag, we start by saving the data to a neo4j db to simplify the management of the relationships between the people and answer our initial questions (who disses who and who's dissed by whom). A visualization of the obtained graph looks like that:
+![alt text](/doc/graph.png)
+The data saved in neo4j are simply the artists and their target's names and wikidata id.
+
+We then launch a jupyter notebook as a task of the dag to run analytics on our data. In it, we compute the answers to our questions and plot bar diagrams to visualize them.
+Then, we plot the content of our neo4j db. When neo4jupyter is successful, the full graph looks like that:
+![alt text](/doc/neo4jupyter_graph.png)
+
+The result is stored in the results folder in the file 'out.ipynb'. It describes all the steps of the analysis.
+The notebook it's based on can be found in the data folder and is named analytics.ipynb.
 
 # Next steps
 
-TODO: what are the next steps that could be done with the project (and that we don't have time for)
+- Have more cleaned data
+- Investigate the problem with neo4jupyter to see why it doesn't load when opened after the run or doesn't show in a generated HTML output
+- Find a use for Kafka as it's the only not implemented bonus
 
 # Instructions
 
-# Pipelines
+## Pipelines
 
 - [X] Data Ingestion
   - [X] Multiple data sources
@@ -116,22 +124,22 @@ TODO: what are the next steps that could be done with the project (and that we d
   - [X] Transformation
   - [X] Enrichment
   - [X] Persistancy
-- [ ] Production
+- [X] Production
   - [X] Permanent db
-  - [ ] Launch analytics
+  - [X] Launch analytics
 
 ## Project
 
 - [X] Online repository
   - [X] Docker-compose
-  - [ ] Description of the steps
+  - [X] Description of the steps
     - [X] Ingestion
     - [X] Wrangling
-    - [ ] Production
-  - [ ] Report
+    - [X] Production
+  - [X] Report
   - [X] Offline dataset
-  - [ ] Slides
-  - [ ] Jupyter frontend (Optional)
+  - [X] Slides
+  - [X] Jupyter frontend (Optional)
 - [ ] Technos
   - [X] Mandatory
     - [X] Airflow
