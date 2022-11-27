@@ -104,6 +104,7 @@ Then, we plot the content of our neo4j db. When neo4jupyter is successful, the f
 ![alt text](/doc/neo4jupyter_graph.png)
 
 The result is stored in the results folder in the file 'out.ipynb'. It describes all the steps of the analysis.
+The notebook it's based on can be found in the data folder and is named analytics.ipynb.
 
 # Next steps
 
