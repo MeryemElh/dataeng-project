@@ -8,3 +8,6 @@ ipykernel
 matplotlib
 networkx
 neo4jupyter
+ipython-cypher
+#nbconvert
+#imgkit

@@ -1,4 +1,6 @@
 import datetime
+from os import system
+from subprocess import CalledProcessError, check_output, STDOUT
 
 import pandas as pd
 
@@ -9,6 +11,7 @@ from airflow import DAG
 from airflow.providers.papermill.operators.papermill import PapermillOperator
 from airflow.operators.python import PythonOperator
 from airflow.operators.empty import EmptyOperator
+from airflow.operators.bash import BashOperator
 
 default_args_dict = {
     "start_date": datetime.datetime(2022, 11, 8, 0, 0, 0),
@@ -86,9 +89,25 @@ notebook_task = PapermillOperator(
     dag=production_dag,
     trigger_rule="all_success",
     input_nb="/opt/airflow/data/analytics.ipynb",
-    output_nb="/opt/airflow/results/out-{{ execution_date }}.ipynb",
-    parameters={"execution_date": "{{ execution_date }}"},
+    output_nb="/opt/airflow/results/out.ipynb",
+    parameters={},
 )
+
+
+# def _jupyter_to_html(
+#     input_filepath: str
+# ):
+#     system(f'python -m jupyter nbconvert --to html {input_filepath}')
+# 
+# save_html_node = PythonOperator(
+#     task_id="save_html_task",
+#     dag=production_dag,
+#     trigger_rule="all_success",
+#     python_callable=_jupyter_to_html,
+#     op_kwargs={
+#         "input_filepath": "/opt/airflow/results/out.ipynb",
+#     },
+# )
 
 end_node = EmptyOperator(
     task_id="end_task", dag=production_dag, trigger_rule="all_success"
