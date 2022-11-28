@@ -47,26 +47,6 @@ For those reasons we took another approach. We searched online for lists of diss
 2. We also search DBPedia for diss tracks using SPARQL request
 3. We enrich information about the songs we retrieved with more data from DBPedia
 
-# Wrangling
-
-Structure of the data we want to have in our staging area (in Postgres database):
-
-### Persons/Organization Table
-
-| ID  | Name            | Type    | Wikipedia endpoint    | Wikidata ID |
-| --- | --------------- | ------- | --------------------- | ----------- |
-| 13  | Queen           | Group   | /wiki/Queen_(Group)   | 2345        |
-| 31  | Eminem          | Artist  | /wiki/Eminem          | 3456        |
-| 83  | United Airlines | Company | /wiki/United_Airlines | 4567        |
-
-### Song Table
-
-| ID  | Date              | Title                 | Artist       | Target          | Response to                                                                 | Wikidata ID | Artist ID | Target ID |
-| --- | ----------------- | --------------------- | ------------ | --------------- | --------------------------------------------------------------------------- | ----------- | --------- | --------- |
-| 7   | 1971              | How Do You Sleep ?    | John Lennon  | Paul McCartney  | Personal slights Lennon felt McCartney made on the latter's album Ram       | Q2453037    | 7         | 8         |
-| 37  | February 12, 1998 | '97 Bonnie & Clyde    | Eminem       | Kim Mathers     |                                                                             | Q4540403    | 31        | 35        |
-| 87  | July 6, 2009      | United Breaks Guitars | Dave Carroll | United Airlines | United Airlines employees breaking Carroll's guitar while on board a flight | Q1567288    | 78        | 83        |
-
 # Project steps
 
 ## Ingestion phase
